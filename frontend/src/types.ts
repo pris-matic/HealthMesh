@@ -6,3 +6,4 @@ export interface FacilityDto { id: string; name: string }
 export interface ScenarioDto { id: string; seed: string; revision: number; synthetic: true; facilities: FacilityDto[] }
 export interface SourceDto { id: string; sha256: string; kind: 'CSV' | 'RAW_TEXT'; observed_at: string; duplicate: boolean }
 export interface SessionDto { user: { username: string; role: 'coordinator' | 'reviewer' } | null; csrf_token: string }
+export interface AMDHealthDto { status: 'UNAVAILABLE'; reason: 'missing_configuration' | 'provider_transport_unverified' }

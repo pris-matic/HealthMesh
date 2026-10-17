@@ -97,5 +97,35 @@ loss policy is `100 * unmet_units_by_deadline + travel_hours +
 0.2 * verification_staff_minutes + response_delay_hours`; it is not a clinical
 score. Hidden evaluation truth does not belong in public fixtures.
 
-No AMD model, credentials, endpoint, or successful inference is configured by
-this task. Passing these bootstrap tests does not satisfy the live AMD gate.
+## AMD availability
+
+Signed-in coordinators and reviewers can read `GET /api/v1/amd/health`. It
+returns `UNAVAILABLE` with `missing_configuration` when any of `AMD_API_KEY`,
+`AMD_API_BASE_URL`, or `AMD_MODEL_ID` is absent; populated settings still return
+`provider_transport_unverified`. The client displays this state and keeps the
+synthetic fixture planner usable. No credential, endpoint, or model setting is
+included in the health response.
+
+The [hackathon FAQ](https://lablab.ai/ai-hackathons/amd-developer-hackathon-act-iii)
+identifies [AMD Token Factory](https://notebooks.amd.com/tokenfactory), whose
+public page requires AMD ADP sign-in. No authenticated event quickstart, enabled
+model, verified base URL, credential, or successful call is available here.
+No endpoint or OpenAI-compatible protocol is assumed. Real transport and the
+live acceptance gate remain Task 8 work.
+
+`AMDInferenceAdapter` defines extraction, conflict explanation, and verification
+wording outcomes: `SUCCESS`, `UNAVAILABLE`, `INVALID_OUTPUT`, and `TIMEOUT`.
+The current adapter makes zero outbound calls and creates no inference receipts.
+Its contract bounds future transport to 10 seconds and zero retries, extraction
+input to 64 KiB of UTF-8 text and 128 issued spans, and output wording to 4000
+characters. Task 8 must enforce network deadlines with the verified transport.
+The extraction service sanitizes text and checks span offsets against that view
+before entering the adapter; it never reads original upload blobs. Candidate
+claims require the later provenance validator and remain unverified evidence.
+
+Completed-call receipts allow only provider, model ID, real UTC timestamp,
+latency, completed status, optional genuine provider request ID, and input/output
+schema versions. They store no full prompt, response, credentials, or headers.
+Unavailable calls and timeouts create neither receipts nor candidate evidence
+and do not advance an incident revision. Passing these contract tests does not
+satisfy the live AMD gate.

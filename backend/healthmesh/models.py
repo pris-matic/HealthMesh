@@ -2,6 +2,7 @@
 from .db_models.core import CanonicalFact, Facility, Incident, Product, RouteObservation, StockBatch, SupplyRequest
 from .db_models.sources import InventoryClaim, SourceDocument, SourceSpan
 from .db_models.planning import PlanRun, PlanProposal
+from .db_models.ai import AIInferenceReceipt
 
-__all__ = ['CanonicalFact', 'Facility', 'Incident', 'Product', 'RouteObservation',
+__all__ = ['AIInferenceReceipt', 'CanonicalFact', 'Facility', 'Incident', 'Product', 'RouteObservation',
            'StockBatch', 'SupplyRequest', 'InventoryClaim', 'SourceDocument', 'SourceSpan', 'PlanRun', 'PlanProposal']

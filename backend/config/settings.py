@@ -40,3 +40,7 @@ CSRF_FAILURE_VIEW = 'healthmesh.workflow.auth.csrf_failure'
 SOURCE_MAX_BYTES = 1024 * 1024
 # Small source files stay in memory until validated and stored in the private DB.
 FILE_UPLOAD_MAX_MEMORY_SIZE = SOURCE_MAX_BYTES + 64 * 1024
+# No transport is enabled until the authenticated AMD event contract is verified.
+AMD_API_KEY = os.environ.get('AMD_API_KEY', '')
+AMD_API_BASE_URL = os.environ.get('AMD_API_BASE_URL', '')
+AMD_MODEL_ID = os.environ.get('AMD_MODEL_ID', '')
