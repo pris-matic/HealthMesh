@@ -40,7 +40,7 @@ def build_snapshot(incident_id: UUID) -> IncidentSnapshot:
     ) for batch in StockBatch.objects.filter(incident=incident).select_related('facility', 'product').order_by('id'))
     request = SupplyRequest.objects.filter(incident=incident).first()
     request_snapshot = None if request is None else RequestSnapshot(
-        id=request.id, facility_id=request.facility_id, product_id=request.product_id,
+        id=request.id, facility_id=request.facility_id, product_id=request.product_id, base_unit=request.product.base_unit,
         **{field: project(request.id, field) for field in ('quantity', 'is_net_transfer_request', 'need_by')},
     )
     routes = tuple(RouteSnapshot(

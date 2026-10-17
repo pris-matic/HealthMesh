@@ -87,6 +87,7 @@ class RequestSnapshot(FrozenModel):
     id: UUID
     facility_id: UUID
     product_id: UUID
+    base_unit: str
     quantity: PlanningFact[int]
     is_net_transfer_request: PlanningFact[bool]
     need_by: PlanningFact[datetime]
