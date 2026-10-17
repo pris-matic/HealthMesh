@@ -10,4 +10,6 @@ def scenarios(request):
     if data.get('seed', 'storm-supply-01') != 'storm-supply-01' or set(data) - {'seed'}:
         raise ValueError('Choose the storm-supply-01 synthetic seed.')
     incident = create_incident(load_scenario('storm-supply-01'), request.user)
-    return JsonResponse({'id': str(incident.id), 'seed': incident.scenario_id, 'revision': incident.revision, 'synthetic': True}, status=201)
+    facilities = [{'id': str(row.id), 'name': row.name} for row in incident.facility_set.order_by('name')]
+    return JsonResponse({'id': str(incident.id), 'seed': incident.scenario_id, 'revision': incident.revision,
+                         'synthetic': True, 'facilities': facilities}, status=201)

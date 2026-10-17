@@ -20,6 +20,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "healthmesh.sources.api.SourceUploadLimitsMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -36,3 +37,6 @@ LANGUAGE_CODE = "en-us"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {"DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"]}
 CSRF_FAILURE_VIEW = 'healthmesh.workflow.auth.csrf_failure'
+SOURCE_MAX_BYTES = 1024 * 1024
+# Small source files stay in memory until validated and stored in the private DB.
+FILE_UPLOAD_MAX_MEMORY_SIZE = SOURCE_MAX_BYTES + 64 * 1024

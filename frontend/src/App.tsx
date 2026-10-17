@@ -3,6 +3,7 @@ import { createScenario, requestPlan, session } from './api';
 import type { PlanDto, ScenarioDto, SessionDto } from './types';
 import { Login } from './features/Login';
 import { PlanPreview } from './features/PlanPreview';
+import { SourceUpload } from './features/SourceUpload';
 
 export default function App() {
   const [account, setAccount] = useState<SessionDto | null>(null);
@@ -32,6 +33,7 @@ export default function App() {
     {account?.user && <><section className="panel scenario"><div><p className="eyebrow">Storm supply · Public synthetic fixture</p><h2>Aster needs 40 boxes</h2><p>Brook has a stale stock count. Cedar’s route is unverified.</p></div>
       <button disabled={busy || account.user.role !== 'coordinator'} onClick={generate}>{busy ? 'Computing…' : plan ? 'Recompute plan' : 'Load scenario and plan'}</button>
       {account.user.role === 'reviewer' && <p>Sign in as a coordinator to create a demo scenario.</p>}</section>
+      {scenario && account.user.role === 'coordinator' && <SourceUpload scenario={scenario} />}
       {plan && <PlanPreview plan={plan} />}</>}
   </main></>;
 }

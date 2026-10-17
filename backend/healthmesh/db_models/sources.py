@@ -24,6 +24,7 @@ class ImmutableEvidence(IncidentRecord):
 
 
 class SourceDocument(ImmutableEvidence):
+    facility = models.ForeignKey('healthmesh.Facility', on_delete=models.PROTECT, null=True, blank=True)
     fixture_id = models.UUIDField(null=True, blank=True)
     kind = models.CharField(max_length=30, choices=[(v, v) for v in ('SIGNED_FIXTURE', 'RAW_TEXT', 'CSV', 'MANUAL')])
     observed_at = models.DateTimeField()
@@ -32,6 +33,10 @@ class SourceDocument(ImmutableEvidence):
     original_blob = models.BinaryField(default=bytes, blank=True)
     decoded_text = models.TextField(blank=True)
     sha256 = models.CharField(max_length=64, editable=False)
+
+    class Meta(ImmutableEvidence.Meta):
+        constraints = [models.UniqueConstraint(fields=['incident', 'facility', 'sha256'],
+                       condition=Q(facility__isnull=False), name='unique_upload_scope_hash')]
 
     def clean(self):
         super().clean()

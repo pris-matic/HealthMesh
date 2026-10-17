@@ -2,8 +2,10 @@ from django.urls import path
 from healthmesh.workflow.auth import session, api_not_found
 from healthmesh.scenarios.api import scenarios
 from healthmesh.planner.api import request_plan, get_plan
+from healthmesh.sources.api import sources
 
 urlpatterns = [
+    path('api/v1/sources', sources),
     path('api/v1/session', session),
     path('api/v1/scenarios', scenarios),
     path('api/v1/incidents/<uuid:incident_id>/plan', request_plan),
