@@ -18,6 +18,10 @@ def csrf_failure(request, reason=''):
     return error('csrf_failed', 'Refresh the session and try again.', 403)
 
 
+def api_not_found(request, unmatched_path=''):
+    return error('not_found', 'API endpoint not found.', 404)
+
+
 def body(request):
     try:
         value = json.loads(request.body or b'{}')

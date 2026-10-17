@@ -8,6 +8,32 @@ from django.test import Client
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.parametrize('debug', [False, True])
+def test_malformed_api_identifiers_return_json_envelope(client, settings, debug):
+    settings.DEBUG = debug
+    token = login(client)
+    valid_id = '00000000-0000-0000-0000-000000000001'
+    paths = [
+        ('post', '/api/v1/incidents/not-a-uuid/plan'),
+        ('get', '/api/v1/incidents/not-a-uuid/plan-runs/not-a-uuid'),
+        ('get', f'/api/v1/incidents/{valid_id}/plan-runs/not-a-uuid'),
+        ('get', f'/api/v1/incidents/not-a-uuid/plan-runs/{valid_id}'),
+        ('get', '/api/v1/unknown-route'),
+    ]
+    for method, path in paths:
+        response = getattr(client, method)(path, HTTP_X_CSRFTOKEN=token)
+        assert response.status_code == 404
+        assert response['Content-Type'] == 'application/json'
+        payload = response.json()
+        assert set(payload) == {'code', 'message', 'field_errors', 'request_id'}
+        assert payload['code'] == 'not_found'
+        assert payload['message']
+        assert payload['field_errors'] == {}
+        UUID(payload['request_id'])
+    assert client.get('/outside-api').status_code == 404
+    assert client.get('/outside-api')['Content-Type'].startswith('text/html')
+
+
 @pytest.fixture
 def client(django_user_model):
     user = django_user_model.objects.create_user('demo-coordinator', password='test-password')
