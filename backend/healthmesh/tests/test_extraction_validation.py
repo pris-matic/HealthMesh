@@ -1,5 +1,6 @@
 """Untrusted candidates must never manufacture evidence or canonical stock."""
 import json
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -121,6 +122,57 @@ def test_uncertainty_cannot_reverse_unsigned_by_matching_a_word_suffix():
     claim = candidate(span, field='uncertainty', value='signed count')
     claim.pop('unit')
     result = validation.validate_extraction({'claims': [claim]}, [span], 'box')
+    assert not result.accepted
+    assert result.quarantined[0].reason == 'VALUE_NOT_SUPPORTED'
+
+
+@pytest.mark.parametrize(('number', 'text'), [
+    ('80.000000000000001', '80 box'),
+    ('-1e-400', '0 box'),
+    ('1e999999999999999999999999', '1 box'),
+])
+def test_json_float_rounding_cannot_manufacture_exact_numeric_support(number, text):
+    span = issued(text)
+    raw = ('{"claims":[{"field":"on_hand","value":' + number
+           + ',"unit":"box","source_span_id":"' + str(span.id) + '"}]}')
+    result = validation.validate_extraction(raw, [span], 'box')
+    assert not result.accepted
+    assert result.quarantined
+
+
+def test_decoded_negative_zero_fails_closed_after_possible_underflow():
+    span = issued('0 box')
+    result = validation.validate_extraction({'claims': [candidate(span, value=-0.0)]}, [span], 'box')
+    assert not result.accepted
+    assert result.quarantined[0].reason == 'INVALID_CLAIM'
+
+
+def test_decoded_float_amount_requires_original_json_lexeme():
+    span = issued('80 box')
+    result = validation.validate_extraction({'claims': [candidate(span, value=80.0)]}, [span], 'box')
+    assert not result.accepted
+    assert result.quarantined[0].reason == 'INVALID_CLAIM'
+
+
+@pytest.mark.parametrize('raw_json', [False, True])
+def test_exact_decimal_amounts_are_preserved_without_float_conversion(raw_json):
+    span = issued('80.000000000000001 box')
+    raw = {'claims': [candidate(span, value=Decimal('80.000000000000001'))]}
+    if raw_json:
+        raw = ('{"claims":[{"field":"on_hand","value":80.000000000000001,'
+               '"unit":"box","source_span_id":"' + str(span.id) + '"}]}')
+    result = validation.validate_extraction(raw, [span], 'box')
+    assert not result.quarantined
+    assert result.accepted[0].value == Decimal('80.000000000000001')
+    assert isinstance(result.accepted[0].value, Decimal)
+
+
+@pytest.mark.parametrize('text', ['−25 box', '﹣25 box', '－25 box', '–25 box',
+                                 '- 25 box', '− 25 box', '1 025 box', '1\u202f025 box',
+                                 '1\u00a0025 box', "1'025 box", '1’025 box'])
+def test_numeric_support_cannot_start_inside_signed_or_grouped_number(text):
+    span = issued(text)
+    result = validation.validate_extraction({'claims': [candidate(span, value=25)]}, [span], 'box')
     assert not result.accepted
     assert result.quarantined[0].reason == 'VALUE_NOT_SUPPORTED'
 

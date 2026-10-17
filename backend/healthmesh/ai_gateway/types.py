@@ -1,10 +1,10 @@
 """Provider-independent outcomes and an allowlist of completed-call metadata."""
 from datetime import datetime, timedelta
-import math
-from typing import Literal
+from decimal import Decimal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator, model_validator
 
 InferenceStatus = Literal['SUCCESS', 'UNAVAILABLE', 'INVALID_OUTPUT', 'TIMEOUT']
 
@@ -58,7 +58,9 @@ class ExtractionResult(Outcome):
 class ExtractedClaim(Contract):
     """v1 candidate: model confidence is metadata, never verification."""
     field: StrictStr
-    value: StrictInt | StrictFloat | StrictStr
+    # Decoded floats cannot prove their original JSON precision. Raw JSON is
+    # parsed with Decimal by validate_extraction; no amount passes via float.
+    value: StrictInt | Annotated[Decimal, Field(strict=True, allow_inf_nan=False)] | StrictStr
     unit: StrictStr | None = None
     source_span_id: UUID
     quote: StrictStr | None = None
@@ -67,11 +69,11 @@ class ExtractedClaim(Contract):
 
     @model_validator(mode='after')
     def valid_value(self):
-        if isinstance(self.value, (int, float)):
+        if isinstance(self.value, (int, Decimal)):
             if (isinstance(self.value, bool) or self.value < 0
-                    or isinstance(self.value, float) and not math.isfinite(self.value)):
+                    or isinstance(self.value, Decimal) and self.value.is_signed()):
                 raise ValueError('Amounts must be finite and nonnegative.')
-        if self.field in {'on_hand', 'reserved'} and type(self.value) not in {int, float}:
+        if self.field in {'on_hand', 'reserved'} and type(self.value) not in {int, Decimal}:
             raise ValueError('Quantities must be JSON numbers.')
         if self.field in {'observed_at', 'uncertainty'} and (not isinstance(self.value, str) or not self.value.strip()):
             raise ValueError('Dates and uncertainty require nonempty text.')

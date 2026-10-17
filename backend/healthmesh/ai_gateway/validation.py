@@ -4,6 +4,9 @@ Input is a JSON string or decoded {"claims": [...]} object. Each claim uses
 ExtractedClaim's schema. Units must match the supplied base unit; the sole
 spelling alias is `boxes` for `box`. No conversion or implicit unit is inferred.
 No database writes, tools, inference calls, or canonical promotion occur here.
+Pass the original model JSON content string, not a float-decoded intermediate.
+JSON fractional amounts and decoded Decimal values retain exact precision;
+decoded Python float amounts are rejected because their lexemes are lost.
 """
 from collections.abc import Sequence
 from datetime import datetime
@@ -11,6 +14,7 @@ from decimal import Decimal
 import json
 import re
 from typing import TYPE_CHECKING
+import unicodedata
 
 from pydantic import ValidationError
 
@@ -34,7 +38,19 @@ def _supported_quantity(value, unit, quote):
     units = '(?:box|boxes)' if unit == 'box' else re.escape(unit)
     # Prevent matching a suffix of a negative, decimal, grouped number or date.
     pattern = rf'(?<![\w.,+\-])([0-9]+(?:\.[0-9]+)?)\s+{units}(?!\w)'
-    return any(Decimal(match.group(1)) == Decimal(str(value)) for match in re.finditer(pattern, quote))
+    for match in re.finditer(pattern, quote):
+        prefix = quote[:match.start()]
+        previous = prefix[-1:]
+        nearest = prefix.rstrip()[-1:]
+        # Unicode minus/dashes and grouping marks belong to the numeric token.
+        # Also reject a suffix after a spaced sign or digit grouping separator.
+        if previous and (previous in "'’ʼ" or unicodedata.category(previous) in {'Pd', 'Sm'}):
+            continue
+        if nearest and (nearest.isdigit() or unicodedata.category(nearest) in {'Pd', 'Sm'}):
+            continue
+        if Decimal(match.group(1)) == Decimal(str(value)):
+            return True
+    return False
 
 
 def validate_extraction(raw: object, allowed_spans: Sequence['SourceSpan'], base_unit: str) -> ValidatedClaims:
@@ -46,9 +62,9 @@ def validate_extraction(raw: object, allowed_spans: Sequence['SourceSpan'], base
         return invalid_output()
     if isinstance(raw, str):
         try:
-            raw = json.loads(raw, object_pairs_hook=_unique_object,
+            raw = json.loads(raw, object_pairs_hook=_unique_object, parse_float=Decimal,
                              parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
-        except (ValueError, RecursionError):
+        except (ValueError, ArithmeticError, RecursionError):
             return invalid_output()
     if (type(raw) is not dict or set(raw) != {'claims'} or type(raw['claims']) is not list):
         return invalid_output()
