@@ -3,7 +3,8 @@
 HealthMesh is a synthetic administrative supply simulation for one fictional
 product and three fictional facilities. It does not perform clinical decisions
 or real transfers. The current bootstrap provides a validated public scenario
-and a Django/DRF backend; workflow and AMD integration arrive in later tasks.
+and an authenticated fixture-to-plan web preview; review workflow and AMD
+integration arrive in later tasks.
 
 ## Local setup (PowerShell)
 
@@ -21,6 +22,10 @@ Set-Location backend
 ../.venv/Scripts/python.exe manage.py check
 ../.venv/Scripts/python.exe -m pytest -q
 ../.venv/Scripts/python.exe manage.py migrate
+# Supply your own synthetic account passwords in this shell.
+$env:DEMO_COORDINATOR_PASSWORD = 'replace-with-your-local-password'
+$env:DEMO_REVIEWER_PASSWORD = 'replace-with-another-local-password'
+../.venv/Scripts/python.exe manage.py seed_demo_users
 ../.venv/Scripts/python.exe manage.py runserver
 ```
 
@@ -31,6 +36,25 @@ Without `DATABASE_URL`, Django uses `backend/db.sqlite3`. For PostgreSQL, export
 credentials belong in the scenario or repository. A missing local secret uses
 an ephemeral random key, so sessions will expire on process restart. Public
 deployment configuration is outside this bootstrap.
+
+In a second PowerShell window, run `cd frontend`, `npm.cmd ci`, then
+`npm.cmd run dev`. Open the printed localhost URL, sign in as
+`demo-coordinator` with your chosen password, and select **Load scenario and
+plan**. Both conditional branches are provisional; review is disabled. The
+fixture runs without AMD. Times display explicitly in Asia/Manila; storage
+uses UTC. `demo-reviewer` can read authenticated plan URLs but cannot create
+scenarios or run plans. Provisioning again resets these two users' passwords
+and demo roles. Do not use those usernames for real accounts.
+
+Vite proxies `/api` to Django on `127.0.0.1:8000`, keeping session cookies and
+CSRF same-origin. Session `GET` bootstraps a CSRF token; `POST` signs in and
+rotates it; `DELETE` signs out. Every mutation requires CSRF, and scenario/plan
+creation requires the coordinator role. The plan API persists a frozen input
+snapshot and result, plus one UUID proposal per atomic branch (all its legs
+together). `GET /api/v1/incidents/{id}/plan-runs/{run_id}` retrieves that saved
+run even after evidence changes. It never dispatches a transfer.
+
+Frontend verification: `npm.cmd run test -- --run` and `npm.cmd run build`.
 
 Dependencies, including the test extra and transitive packages, are pinned in
 `backend/requirements.lock`. To deliberately refresh the lock from the root:

@@ -222,3 +222,6 @@ __marimo__/
 # Local managed runtimes and isolated worktrees
 .python/
 .worktrees/
+# Frontend dependencies and generated build
+frontend/node_modules/
+frontend/dist/

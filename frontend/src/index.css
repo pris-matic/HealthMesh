@@ -1,0 +1,28 @@
+:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #16302d; background: #f3f6f4; font-synthesis: none; line-height: 1.55; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.demo-banner { background: #143f38; color: white; text-align: center; padding: 10px 20px; font-size: .9rem; }
+main { max-width: 1160px; margin: auto; padding: 36px 24px 64px; }
+header, .section-heading, .scenario { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; }
+header { margin-bottom: 28px; }
+h1 { font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -.04em; line-height: 1.15; margin: 8px 0 16px; }
+h2, h3 { line-height: 1.3; }
+h4 { margin-bottom: 8px; }
+.eyebrow { text-transform: uppercase; font-size: .75rem; letter-spacing: .12em; font-weight: 700; color: #41675f; }
+.panel { border: 1px solid #cedbd5; border-radius: 14px; padding: 24px; background: white; margin-bottom: 24px; }
+.branches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 24px; }
+.badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: .85rem; font-weight: 700; background: #fff0cc; color: #704b00; }
+button { border: 0; border-radius: 8px; padding: 12px 18px; font: inherit; font-weight: 650; background: #176453; color: white; cursor: pointer; }
+button.secondary { background: #e7efea; color: #16302d; }
+button:disabled { cursor: not-allowed; background: #e4e9e6; color: #56645c; }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid #d59015; outline-offset: 3px; }
+label { display: block; margin-bottom: 18px; font-weight: 600; }
+input { display: block; width: 100%; padding: 12px; font: inherit; border: 1px solid #809b90; border-radius: 6px; margin-top: 6px; }
+.login { max-width: 480px; }
+li { margin-bottom: 8px; overflow-wrap: anywhere; }
+.allocations { padding-left: 22px; }
+.allocations strong { font-size: 1.25rem; }
+small, .muted { color: #52675e; }
+summary { cursor: pointer; font-weight: 600; }
+.error, [role=alert] { color: #9b2727; }
+@media (max-width: 700px) { .branches { grid-template-columns: 1fr; gap: 0; } main { padding: 24px 16px; } .panel { padding: 20px; } }

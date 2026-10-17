@@ -1,0 +1,6 @@
+export interface Check { subject_id: string | null; field: string; status: 'PASS' | 'FAIL' | 'UNKNOWN'; reason: string; evidence_ids: string[] }
+export interface Allocation { batch_id: string; facility_id: string; facility_name: string; route_id: string | null; product_id: string; base_unit: string; quantity: number; transferable: number | null }
+export interface Branch { id: string; snapshot_id: string; revision: number; allocations: Allocation[]; status: 'PROVISIONAL' | 'READY_FOR_REVIEW' | 'INFEASIBLE'; conditions: string[]; checks: Check[]; rejected_reasons: string[] }
+export interface PlanDto { id: string; created_at: string; as_of: string; status: 'PROVISIONAL' | 'READY_FOR_REVIEW' | 'BLOCKED_INSUFFICIENT_EVIDENCE' | 'NO_FEASIBLE_OPTION'; snapshot_id: string; revision: number; branches: Branch[]; mandatory_unverified_facts: Check[]; evidence_ids: string[]; infeasible_reasons: string[]; requires_review: true; model_policy_version: string }
+export interface ScenarioDto { id: string; seed: string; revision: number; synthetic: true }
+export interface SessionDto { user: { username: string; role: 'coordinator' | 'reviewer' } | null; csrf_token: string }

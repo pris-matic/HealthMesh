@@ -35,3 +35,4 @@ TIME_ZONE = "UTC"
 LANGUAGE_CODE = "en-us"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {"DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"]}
+CSRF_FAILURE_VIEW = 'healthmesh.workflow.auth.csrf_failure'
