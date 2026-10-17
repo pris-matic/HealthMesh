@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from django.core.exceptions import ValidationError
 
 from healthmesh.sources.sanitizer import sanitize
+from healthmesh.sources.spans import valid_span_offsets
 from .adapter import AMDInferenceAdapter, UnavailableAMDAdapter
 from .types import ExtractionResult, ReceiptMetadata
 
@@ -24,9 +25,8 @@ def extract_claims(text: str, allowed_spans: Sequence, schema_version: str) -> E
     # A caller may supply only spans from the sanitized text view. Never pass
     # original-upload text hidden inside a span alongside a sanitized prompt.
     for span in allowed_spans:
-        start, end = getattr(span, 'start', None), getattr(span, 'end', None)
-        if (type(start) is not int or type(end) is not int or not 0 <= start < end <= len(sanitized)
-                or getattr(span, 'text', None) != sanitized[start:end]):
+        if (not valid_span_offsets(span, sanitized)
+                or getattr(span, 'text', None) != sanitized[span.start:span.end]):
             return ExtractionResult(status='INVALID_OUTPUT')
     try:
         return get_amd_adapter().extract_claims(sanitized, allowed_spans, schema_version)

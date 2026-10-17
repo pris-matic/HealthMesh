@@ -1,9 +1,10 @@
 """Provider-independent outcomes and an allowlist of completed-call metadata."""
 from datetime import datetime, timedelta
+import math
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, field_validator, model_validator
 
 InferenceStatus = Literal['SUCCESS', 'UNAVAILABLE', 'INVALID_OUTPUT', 'TIMEOUT']
 
@@ -52,6 +53,47 @@ class ExtractionResult(Outcome):
         if self.status != 'SUCCESS' and self.claims:
             raise ValueError('Failed inference cannot produce candidate claims.')
         return self
+
+
+class ExtractedClaim(Contract):
+    """v1 candidate: model confidence is metadata, never verification."""
+    field: StrictStr
+    value: StrictInt | StrictFloat | StrictStr
+    unit: StrictStr | None = None
+    source_span_id: UUID
+    quote: StrictStr | None = None
+    is_ambiguous: bool = Field(default=False, strict=True)
+    confidence: float | None = Field(default=None, ge=0, le=1, strict=True)
+
+    @model_validator(mode='after')
+    def valid_value(self):
+        if isinstance(self.value, (int, float)):
+            if (isinstance(self.value, bool) or self.value < 0
+                    or isinstance(self.value, float) and not math.isfinite(self.value)):
+                raise ValueError('Amounts must be finite and nonnegative.')
+        if self.field in {'on_hand', 'reserved'} and type(self.value) not in {int, float}:
+            raise ValueError('Quantities must be JSON numbers.')
+        if self.field in {'observed_at', 'uncertainty'} and (not isinstance(self.value, str) or not self.value.strip()):
+            raise ValueError('Dates and uncertainty require nonempty text.')
+        return self
+
+
+class ValidatedClaim(ExtractedClaim):
+    quote: str
+    status: Literal['OBSERVED_UNVERIFIED'] = 'OBSERVED_UNVERIFIED'
+
+
+class QuarantinedClaim(Contract):
+    # Do not retain arbitrary model output or instructions in the result.
+    index: int | None = None
+    reason: Literal['INVALID_OUTPUT', 'INVALID_CLAIM', 'UNSUPPORTED_FIELD',
+                    'UNKNOWN_SPAN', 'INVALID_SPAN', 'QUOTE_MISMATCH',
+                    'UNIT_MISMATCH', 'VALUE_NOT_SUPPORTED']
+
+
+class ValidatedClaims(Contract):
+    accepted: tuple[ValidatedClaim, ...] = ()
+    quarantined: tuple[QuarantinedClaim, ...] = ()
 
 
 class GroundedExplanation(Outcome):
