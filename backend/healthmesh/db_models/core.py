@@ -252,6 +252,11 @@ class CanonicalFact(IncidentRecord):
     claim = models.ForeignKey('healthmesh.InventoryClaim', on_delete=models.PROTECT, null=True, blank=True)
     basis = models.CharField(max_length=200)
 
+    def save(self, force_insert=False, force_update=False, using=None, update_fields=None):
+        if update_fields is not None:
+            raise ValidationError('Canonical facts must save their value and supporting evidence together.')
+        return super().save(force_insert=force_insert, force_update=force_update, using=using)
+
     class Meta(IncidentRecord.Meta):
         constraints = [
             models.UniqueConstraint(fields=['incident', 'subject_id', 'field'], name='unique_canonical_field'),

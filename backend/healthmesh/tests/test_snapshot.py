@@ -149,6 +149,30 @@ def test_canonical_fact_cannot_promote_unsigned_or_change_claim_value(incident):
         fact.save()
 
 
+@pytest.mark.parametrize('positional', [False, True])
+def test_partial_canonical_save_cannot_detach_value_from_evidence(incident, positional):
+    fact = CanonicalFact.objects.filter(incident=incident, field='on_hand').first()
+    original_value, original_claim_id = fact.value, fact.claim_id
+    replacement = InventoryClaim.objects.create(
+        incident=incident, subject_id=fact.subject_id, field=fact.field, value=90,
+        source=fact.source, observed_at=fact.observed_at, status='HUMAN_VERIFIED', basis='signed correction',
+    )
+    before = build_snapshot(incident.id)
+    fact.value, fact.claim = replacement.value, replacement
+    with pytest.raises(ValidationError):
+        if positional:
+            fact.save(False, False, None, ['value'])
+        else:
+            fact.save(update_fields=['value'])
+    persisted = CanonicalFact.objects.get(pk=fact.pk)
+    assert (persisted.value, persisted.claim_id) == (original_value, original_claim_id)
+    assert build_snapshot(incident.id).revision == before.revision
+    fact.save()
+    projected = next(batch for batch in build_snapshot(incident.id).batches if batch.id == fact.subject_id).on_hand
+    assert (projected.value, projected.evidence_id) == (90, replacement.id)
+    assert build_snapshot(incident.id).revision == before.revision + 1
+
+
 def test_bulk_mutations_cannot_bypass_revision_or_validation(incident):
     with pytest.raises(ValidationError):
         CanonicalFact.objects.filter(incident=incident).update(value=-1)
