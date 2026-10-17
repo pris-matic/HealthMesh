@@ -7,7 +7,11 @@ from .types import Allocation, ConstraintCheck, PlanBranch, PlanResult
 
 
 def _verified(snapshot, fact):
+    # Canonical snapshot construction validates claim/value/source linkage. Here
+    # require explicit evidence and a source belonging to this frozen incident;
+    # status and timestamps alone cannot confer verification.
     return (fact.value is not None and fact.status in {'HUMAN_VERIFIED', 'DERIVED_FROM_VERIFIED'}
+            and fact.evidence_id is not None and fact.source_id in snapshot.source_ids
             and fact.observed_at is not None and fact.observed_at.tzinfo is not None
             and timedelta(0) <= snapshot.as_of - fact.observed_at <= timedelta(hours=snapshot.policy.freshness_hours))
 
@@ -35,7 +39,7 @@ def validate_proposal(snapshot: IncidentSnapshot, branch: PlanBranch) -> list[Co
     def fact_check(subject, field, fact, predicate):
         known = _verified(snapshot, fact)
         check(subject, field, predicate(fact.value) if known else None,
-              f'{subject}: {field} must be verified, fresh and satisfy the constraint'
+              f'{subject}: {field} must have provenance, be verified, fresh and satisfy the constraint'
               if not known else f'{subject}: {field} constraint',
               (fact.evidence_id,) if fact.evidence_id else ())
         return known
@@ -129,7 +133,8 @@ def plan(snapshot: IncidentSnapshot) -> PlanResult:
                                              status='INFEASIBLE' if failures else 'PROVISIONAL' if conditions else 'READY_FOR_REVIEW'))
 
     branches = [evaluate((candidate,)) for candidate in candidates]
-    if not any(b.status != 'INFEASIBLE' for b in branches):
+    has_provisional_single = any(b.status == 'PROVISIONAL' for b in branches)
+    if not any(b.status == 'READY_FOR_REVIEW' for b in branches):
         seen = set()
         for left, right in combinations(candidates, 2):
             if left.facility_id == right.facility_id:
@@ -144,7 +149,11 @@ def plan(snapshot: IncidentSnapshot) -> PlanResult:
                 key = tuple((a.batch_id, a.quantity) for a in legs)
                 if key not in seen:
                     seen.add(key)
-                    branches.append(evaluate(legs))
+                    combined = evaluate(legs)
+                    # Existing full-fill conditional singles already express the
+                    # pending path. Still surface any fully verified split.
+                    if combined.status == 'READY_FOR_REVIEW' or not has_provisional_single:
+                        branches.append(combined)
 
     def ranking(branch):
         routes = {r.id: r for r in snapshot.routes}

@@ -1,5 +1,6 @@
 from datetime import timedelta
 from random import Random
+from uuid import UUID
 
 import pytest
 
@@ -17,7 +18,10 @@ def snapshot(db, django_user_model):
 
 
 def fact(snapshot, value, status='HUMAN_VERIFIED'):
-    return PlanningFact(value=value, status=status, observed_at=snapshot.as_of)
+    # Counterfactual facts explicitly carry test provenance; canonical claim/value
+    # linkage is validated by the snapshot-building boundary, not this pure unit test.
+    return PlanningFact(value=value, status=status, observed_at=snapshot.as_of,
+                        evidence_id=UUID(int=9001), source_id=snapshot.source_ids[0])
 
 
 def verified(snapshot, brook=90, cedar=55):
@@ -56,6 +60,48 @@ def test_two_sources_split_when_each_below_40(snapshot):
     assert ready
     assert all(len(b.allocations) == 2 and sum(a.quantity for a in b.allocations) == 40 for b in ready)
     assert all(a.quantity <= a.transferable for b in ready for a in b.allocations)
+
+
+@pytest.mark.parametrize('provenance', ['evidence_id', 'source_id', 'foreign_source'])
+@pytest.mark.parametrize('subject,field', [
+    ('request', 'quantity'), ('request', 'need_by'), ('request', 'is_net_transfer_request'),
+    ('batch', 'on_hand'), ('batch', 'reserved'), ('batch', 'protected_reserve'),
+    ('batch', 'reserve_accounting'), ('batch', 'expires_on'), ('batch', 'storage_usable'),
+    ('route', 'status'), ('route', 'verified_open_eta_hours'),
+])
+def test_mandatory_facts_without_provenance_never_ready(snapshot, provenance, subject, field):
+    current = verified(snapshot)
+    branch = next(b for b in plan(current).branches if b.status == 'READY_FOR_REVIEW')
+    change = {'source_id': UUID(int=9002)} if provenance == 'foreign_source' else {provenance: None}
+
+    def unsupported(record):
+        return record.model_copy(update={field: getattr(record, field).model_copy(update=change)})
+
+    if subject == 'request':
+        current = current.model_copy(update={'request': unsupported(current.request)})
+    elif subject == 'batch':
+        current = current.model_copy(update={'batches': tuple(unsupported(b) for b in current.batches)})
+    else:
+        current = current.model_copy(update={'routes': tuple(unsupported(r) for r in current.routes)})
+    checked_field = 'route_status' if subject == 'route' and field == 'status' else field
+    assert any(c.field == checked_field and c.status == 'UNKNOWN' for c in validate_proposal(current, branch))
+    assert plan(current).status != 'READY_FOR_REVIEW'
+
+
+def test_provisional_single_does_not_hide_verified_full_fill_pair(snapshot):
+    current = verified(snapshot, brook=65, cedar=30)
+    template = next(b for b in current.batches if b.facility_name == 'Brook')
+    extra = template.model_copy(update={'id': UUID(int=9100), 'facility_id': UUID(int=9101),
+                                       'facility_name': 'Dawn', 'on_hand': fact(current, None, 'UNKNOWN')})
+    route = next(r for r in current.routes if r.origin_id == template.facility_id)
+    extra_route = route.model_copy(update={'id': UUID(int=9102), 'origin_id': extra.facility_id, 'origin_name': 'Dawn'})
+    current = current.model_copy(update={'batches': (*current.batches, extra), 'routes': (*current.routes, extra_route)})
+    result = plan(current)
+    assert any(b.status == 'PROVISIONAL' and len(b.allocations) == 1 for b in result.branches)
+    assert result.status == 'READY_FOR_REVIEW'
+    ready = result.branches[0]
+    assert ready.status == 'READY_FOR_REVIEW'
+    assert {a.facility_name: a.quantity for a in ready.allocations} == {'Brook': 20, 'Cedar': 20}
 
 
 @pytest.mark.parametrize('field,value,status', [
