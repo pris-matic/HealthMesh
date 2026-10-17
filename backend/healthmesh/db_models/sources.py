@@ -77,6 +77,7 @@ class InventoryClaim(ImmutableEvidence):
     value = models.JSONField()
     source = models.ForeignKey(SourceDocument, on_delete=models.PROTECT)
     span = models.ForeignKey(SourceSpan, on_delete=models.PROTECT, null=True, blank=True)
+    extraction_run = models.ForeignKey('healthmesh.AIExtractionRun', on_delete=models.PROTECT, null=True, blank=True)
     observed_at = models.DateTimeField()
     status = models.CharField(max_length=30, choices=STATUSES, default='OBSERVED_UNVERIFIED')
     basis = models.CharField(max_length=200)
@@ -96,3 +97,5 @@ class InventoryClaim(ImmutableEvidence):
             raise ValidationError('Unsigned source claims cannot be verified.')
         if self.span_id and self.span.source_id != self.source_id:
             raise ValidationError('Span must belong to the claim source.')
+        if self.extraction_run_id and self.extraction_run.source_id != self.source_id:
+            raise ValidationError('Extraction run must belong to the claim source.')

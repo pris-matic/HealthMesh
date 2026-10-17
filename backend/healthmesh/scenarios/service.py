@@ -5,8 +5,9 @@ from uuid import UUID, uuid4
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from healthmesh.models import CanonicalFact, Facility, Incident, InventoryClaim, Product, RouteObservation, SourceDocument, StockBatch, SupplyRequest
+from healthmesh.models import CanonicalFact, Facility, Incident, InventoryClaim, Product, RouteObservation, SourceDocument, SourceSpan, StockBatch, SupplyRequest
 from healthmesh.db_models.core import incident_mutation
+from healthmesh.sources.spans import line_spans
 from .fixture import ScenarioSeed
 
 
@@ -30,6 +31,11 @@ def create_incident(seed: ScenarioSeed, actor) -> Incident:
 
 def _seed_records(seed, incident, facility_ids):
     facts = seed.public_facts
+    facilities = {}
+    for facility in facts.facilities:
+        facilities[facility.id] = Facility.objects.create(
+            id=facility_ids[facility.id], incident=incident, fixture_id=facility.id, name=facility.name)
+    brook = next(facilities[f.id] for f in facts.facilities if f.name == 'Brook')
     sources = {}
     for reference in seed.source_references:
         if reference.kind == 'RAW_TEXT':
@@ -41,14 +47,17 @@ def _seed_records(seed, incident, facility_ids):
             decoded = json.dumps({'source_id': str(reference.id), 'public_facts': facts.model_dump(mode='json')}, sort_keys=True)
             original = decoded.encode('utf-8')
         sources[reference.id] = SourceDocument.objects.create(
-            incident=incident, fixture_id=reference.id, kind=reference.kind, observed_at=reference.observed_at,
+            incident=incident, facility=brook if reference.kind == 'RAW_TEXT' else None,
+            fixture_id=reference.id, kind=reference.kind, observed_at=reference.observed_at,
             verified=reference.verified, filename=reference.path or '', original_blob=original,
             decoded_text=decoded, sha256=reference.sha256 or '',
         )
+        if reference.kind == 'RAW_TEXT':
+            for draft in line_spans(decoded):
+                SourceSpan.objects.create(incident=incident, source=sources[reference.id],
+                                          start=draft.start, end=draft.end)
     product = Product.objects.create(incident=incident, fixture_id=facts.product.id,
                                      code=facts.product.code, base_unit=facts.product.base_unit)
-    facilities = {}
-
     def seed_fact(subject, field, value, source_id, observed_at, status='HUMAN_VERIFIED'):
         source = sources[source_id]
         basis = 'Signed synthetic fixture; not an inferred text claim'
@@ -58,8 +67,7 @@ def _seed_records(seed, incident, facility_ids):
                                       source=source, claim=claim, observed_at=observed_at, status=status, basis=basis)
 
     for facility in facts.facilities:
-        row = Facility.objects.create(id=facility_ids[facility.id], incident=incident, fixture_id=facility.id, name=facility.name)
-        facilities[facility.id] = row
+        row = facilities[facility.id]
         seed_fact(row, 'daily_demand', [day.model_dump(mode='json') for day in facility.daily_demand],
                   facility.demand_source_id, sources[facility.demand_source_id].observed_at)
         stock = facility.stock

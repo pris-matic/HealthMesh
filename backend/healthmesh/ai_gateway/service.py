@@ -1,15 +1,22 @@
-"""No incident mutation or raw-upload access belongs in inference orchestration."""
+"""Sanitized inference orchestration and unverified evidence persistence."""
 from collections.abc import Sequence
+from decimal import Decimal
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 
+from healthmesh.db_models.core import incident_mutation
 from healthmesh.sources.sanitizer import sanitize
 from healthmesh.sources.spans import valid_span_offsets
 from .adapter import AMDInferenceAdapter, UnavailableAMDAdapter
 from .types import ExtractionResult, ReceiptMetadata
+from .validation import validate_extraction
 
 
 def get_amd_adapter() -> AMDInferenceAdapter:
+    from .provider_event import TokenFactoryAMDAdapter, configured_for_token_factory
+    if configured_for_token_factory():
+        return TokenFactoryAMDAdapter()
     return UnavailableAMDAdapter()
 
 
@@ -42,3 +49,71 @@ def record_receipt(metadata: ReceiptMetadata):
     """
     from healthmesh.models import AIInferenceReceipt
     return AIInferenceReceipt.objects.create(**metadata.model_dump())
+
+
+def _persistable_claims(validated):
+    """Use exact integers for stock quantities; quarantine unsupported precision."""
+    accepted, rejected = [], len(validated.quarantined)
+    for claim in validated.accepted:
+        value = claim.value
+        if claim.field in {'on_hand', 'reserved'}:
+            if (type(value) not in {int, Decimal} or value < 0 or value > 999_999_999
+                    or isinstance(value, Decimal) and (value.is_signed() or value != value.to_integral_value())):
+                rejected += 1
+                continue
+            value = int(value)
+        accepted.append((claim, value))
+    return accepted, rejected
+
+
+def extract_source(source_id, actor) -> ExtractionResult:
+    """One genuine provider call per request; accepted evidence remains unsigned."""
+    from healthmesh.models import AIExtractionRun, InventoryClaim, SourceDocument, SourceSpan, StockBatch
+
+    if (not actor or not actor.is_authenticated or not actor.is_active
+            or not actor.groups.filter(name='coordinator').exists()):
+        raise PermissionDenied('An active coordinator is required.')
+    source = SourceDocument.objects.select_related('incident', 'facility').get(pk=source_id,
+                                                                               incident__synthetic=True)
+    if source.kind != 'RAW_TEXT' or source.facility_id is None:
+        raise ValidationError({'source': 'Only facility-bound synthetic text can be extracted.'})
+    batches = tuple(StockBatch.objects.filter(incident=source.incident, facility=source.facility)
+                    .select_related('product'))
+    if len(batches) != 1:
+        raise ValidationError({'source': 'A single known stock batch is required for extraction.'})
+    spans = tuple(SourceSpan.objects.filter(source=source).select_related('source').order_by('start', 'id'))
+    if not spans:
+        return ExtractionResult(status='INVALID_OUTPUT')
+    provider = extract_claims(source.decoded_text, spans, 'v1')
+    if provider.receipt is None:
+        return provider
+    if provider.status == 'SUCCESS':
+        validated = validate_extraction(provider.raw_content, spans, batches[0].product.base_unit)
+        accepted, rejected = _persistable_claims(validated)
+        status = ('INVALID_OUTPUT' if len(validated.quarantined) == 1
+                  and validated.quarantined[0].reason == 'INVALID_OUTPUT' else 'SUCCESS')
+    else:
+        accepted, rejected, status = [], 1, provider.status
+    metadata = provider.receipt
+    if status != metadata.status:
+        metadata = metadata.model_copy(update={'status': status})
+    with transaction.atomic():
+        receipt = record_receipt(metadata)
+        run = AIExtractionRun.objects.create(source=source, receipt=receipt,
+                                              accepted_count=len(accepted), rejected_count=rejected)
+        claim_rows = []
+        if accepted:
+            with incident_mutation(source.incident_id):
+                for claim, value in accepted:
+                    saved = InventoryClaim.objects.create(incident=source.incident,
+                        subject_id=batches[0].id, source=source, span=next(
+                            span for span in spans if span.id == claim.source_span_id),
+                        extraction_run=run, field=claim.field, value=value,
+                        observed_at=source.observed_at, status='OBSERVED_UNVERIFIED',
+                        basis='AMD extracted observation; human verification required')
+                    claim_rows.append({'id': str(saved.id), 'field': saved.field, 'value': saved.value,
+                                       'status': saved.status, 'source_span_id': str(saved.span_id)})
+    source.incident.refresh_from_db()
+    return ExtractionResult(status=status, receipt=metadata, receipt_id=receipt.id,
+                            claims=tuple(claim_rows), accepted_count=len(claim_rows),
+                            rejected_count=rejected, new_revision=source.incident.revision)

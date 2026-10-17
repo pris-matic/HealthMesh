@@ -24,3 +24,14 @@ test('health request failure never implies AMD availability', async () => {
   render(<App />);
   expect(await screen.findByText(/AMD inference: UNAVAILABLE/)).toBeInTheDocument();
 });
+
+test('configured transport is shown as configured without claiming a successful call', async () => {
+  vi.stubGlobal('fetch', async (url: string) => ({ ok: true, json: async () => {
+    if (url.endsWith('/session')) return { user: { username: 'demo', role: 'coordinator' }, csrf_token: 'token' };
+    if (url.endsWith('/amd/health')) return { status: 'CONFIGURED', reason: 'token_factory_protocol' };
+    throw new Error(`Unexpected URL ${url}`);
+  } }));
+  render(<App />);
+  expect(await screen.findByText(/AMD inference: CONFIGURED/)).toBeInTheDocument();
+  expect(screen.getByText(/reports local settings, not a successful AMD call/i)).toBeInTheDocument();
+});

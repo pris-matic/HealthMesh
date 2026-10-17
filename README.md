@@ -99,33 +99,53 @@ score. Hidden evaluation truth does not belong in public fixtures.
 
 ## AMD availability
 
-Signed-in coordinators and reviewers can read `GET /api/v1/amd/health`. It
-returns `UNAVAILABLE` with `missing_configuration` when any of `AMD_API_KEY`,
-`AMD_API_BASE_URL`, or `AMD_MODEL_ID` is absent; populated settings still return
-`provider_transport_unverified`. The client displays this state and keeps the
-synthetic fixture planner usable. No credential, endpoint, or model setting is
-included in the health response.
+HealthMesh uses the event-issued AMD Token Factory OpenAI-compatible protocol
+provided by the project owner. The default `AMD_API_BASE_URL` is
+`https://developer.amd.com.cn/radeon/api/v1`; extraction sends `POST
+/chat/completions` with `response_format={"type":"json_object"}` and reads
+`choices[0].message.content`. `AMD_MODEL_ID` defaults to `DeepSeek-V4-Flash` and
+can be changed without code changes. The model catalog at `GET /models` may
+change; HealthMesh does not hardcode that catalog. Only `AMD_API_KEY` is required
+as a secret. Keep it in a local environment variable, never in a checked-in file
+or frontend bundle.
 
-The [hackathon FAQ](https://lablab.ai/ai-hackathons/amd-developer-hackathon-act-iii)
-identifies [AMD Token Factory](https://notebooks.amd.com/tokenfactory), whose
-public page requires AMD ADP sign-in. No authenticated event quickstart, enabled
-model, verified base URL, credential, or successful call is available here.
-No endpoint or OpenAI-compatible protocol is assumed. Real transport and the
-live acceptance gate remain Task 8 work.
+`GET /api/v1/amd/health` returns `CONFIGURED` only when a key and the documented
+Token Factory base URL are set; this reports local configuration, not a successful
+upstream call. It returns `UNAVAILABLE` otherwise. The UI offers **Extract with
+AMD** after a synthetic text upload. A coordinator can also call `POST
+/api/v1/sources/{source_id}/extract` for the seeded Brook note or an uploaded
+facility-bound text source. Each request makes a new call with sanitized text
+and issued source-line spans; no output cache is used. A completed call creates
+a sanitized receipt with provider, model ID, UTC timestamp, latency, status,
+genuine request header ID when present, and input/output schema versions. A
+separate extraction-run relation links receipt to source; each accepted claim
+links to that run and to its source span. Neither receipt nor run stores the
+prompt, response body, key, or arbitrary headers.
+Incidents seeded before this version need a new scenario instance to gain the
+Brook facility binding and source-line spans.
 
-`AMDInferenceAdapter` defines extraction, conflict explanation, and verification
-wording outcomes: `SUCCESS`, `UNAVAILABLE`, `INVALID_OUTPUT`, and `TIMEOUT`.
-The current adapter makes zero outbound calls and creates no inference receipts.
-Its contract bounds future transport to 10 seconds and zero retries, extraction
-input to 64 KiB of UTF-8 text and 128 issued spans, and output wording to 4000
-characters. Task 8 must enforce network deadlines with the verified transport.
-The extraction service sanitizes text and checks span offsets against that view
-before entering the adapter; it never reads original upload blobs. Candidate
-claims require the later provenance validator and remain unverified evidence.
+The exact-decimal evidence validator checks issued span IDs, offsets, numeric
+tokens, and units. The fixture phrase `counted 80 boxes, 25 reserved` has one
+explicitly scoped reserved-unit rule; unrelated bare numbers remain unsupported.
+Accepted AI claims are `OBSERVED_UNVERIFIED` and never update verified inventory
+or authorize a plan. Timeouts and unavailable calls create no receipt, claim, or
+incident revision. Transient 429/502/503 responses use at most two retries
+within a 10-second total deadline, respecting `Retry-After` on 429; permanent
+request/configuration errors are not retried.
 
-Completed-call receipts allow only provider, model ID, real UTC timestamp,
-latency, completed status, optional genuine provider request ID, and input/output
-schema versions. They store no full prompt, response, credentials, or headers.
-Unavailable calls and timeouts create neither receipts nor candidate evidence
-and do not advance an incident revision. Passing these contract tests does not
-satisfy the live AMD gate.
+To run the genuine one-call Brook acceptance test from PowerShell after setting
+`AMD_API_KEY` locally in the environment, run:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m pytest -q -m amd_live healthmesh/tests/test_amd_live.py
+```
+
+The test checks a real provider receipt, span-backed `on_hand=80` and
+`reserved=25` candidate claims, unchanged verified facts, and no secret or
+prompt in persisted metadata. A skip when `AMD_API_KEY` is absent is **not**
+live acceptance. The offline contract suite uses a transport stub and can be
+run with `..\.venv\Scripts\python.exe -m pytest -q
+healthmesh/tests/test_amd_contract.py`. Conflict explanation and verification
+wording are separate Task 11 operations and remain unavailable until wired and
+tested with genuine calls.

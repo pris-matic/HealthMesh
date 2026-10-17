@@ -1,8 +1,4 @@
-"""Only this module may know provider configuration or verified transport.
-
-No transport is implemented until the authenticated event quickstart is known.
-Environment settings alone cannot establish provider availability.
-"""
+"""Provider-independent adapter contract and explicit unavailable state."""
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol
@@ -21,9 +17,9 @@ class VerificationTask(Protocol):
 
 
 class AMDInferenceAdapter(ABC):
-    # Hard upper bounds for future transport: one attempt, no retries, 10s.
+    # Hard overall deadline, bounded request size and issued evidence scope.
     timeout_seconds = 10
-    max_retries = 0
+    max_retries = 2
     max_input_bytes = 65536
     max_spans = 128
 

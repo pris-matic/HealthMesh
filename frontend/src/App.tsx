@@ -11,12 +11,12 @@ export default function App() {
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [amdStatus, setAMDStatus] = useState<'checking' | 'UNAVAILABLE'>('checking');
+  const [amdStatus, setAMDStatus] = useState<'checking' | 'UNAVAILABLE' | 'CONFIGURED'>('checking');
   useEffect(() => { session().then(setAccount).catch(() => setError('Cannot connect to the demo API. Refresh to retry.')); }, []);
   useEffect(() => {
     if (!account?.user) { setAMDStatus('checking'); return; }
     let active = true;
-    amdHealth().then(() => { if (active) setAMDStatus('UNAVAILABLE'); })
+    amdHealth().then(result => { if (active) setAMDStatus(result.status); })
       .catch(() => { if (active) setAMDStatus('UNAVAILABLE'); });
     return () => { active = false; };
   }, [account]);
@@ -36,8 +36,9 @@ export default function App() {
       }}>Sign out</button></div>}
     </header>
     {error && <p role="alert" className="error">{error}</p>}
-    {account?.user && <><p role="status">AMD inference: {amdStatus === 'checking' ? 'Checking availability…' : 'UNAVAILABLE'}</p>
+    {account?.user && <><p role="status">AMD inference: {amdStatus === 'checking' ? 'Checking availability…' : amdStatus}</p>
       {amdStatus === 'UNAVAILABLE' && <p>AI extraction and grounded wording are unavailable. Synthetic fixture planning remains available.</p>}</>}
+    {account?.user && amdStatus === 'CONFIGURED' && <p>Configured reports local settings, not a successful AMD call. Each extraction shows its own result.</p>}
     {!account && !error && <p role="status">Connecting…</p>}
     {account && !account.user && <Login onLogin={setAccount} />}
     {account?.user && <><section className="panel scenario"><div><p className="eyebrow">Storm supply · Public synthetic fixture</p><h2>Aster needs 40 boxes</h2><p>Brook has a stale stock count. Cedar’s route is unverified.</p></div>

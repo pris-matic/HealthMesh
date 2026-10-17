@@ -53,6 +53,19 @@ def _supported_quantity(value, unit, quote):
     return False
 
 
+def _reserved_counted_clause(value, unit, quote):
+    """The Brook note's explicit unit scopes one adjacent reserved amount.
+
+    This is deliberately narrower than general unit inheritance: the two
+    unsigned, ungrouped integers must occur in the same exact counted clause.
+    """
+    if unit != 'box':
+        return False
+    pattern = r'(?<!\w)counted\s+[0-9]+\s+box(?:es)?,\s+([0-9]+)\s+reserved(?!\w)'
+    return any(Decimal(match.group(1)) == Decimal(str(value))
+               for match in re.finditer(pattern, quote, flags=re.IGNORECASE))
+
+
 def validate_extraction(raw: object, allowed_spans: Sequence['SourceSpan'], base_unit: str) -> ValidatedClaims:
     """Accept only supported claims; quarantine invalid candidates by index."""
     def invalid_output():
@@ -109,7 +122,8 @@ def validate_extraction(raw: object, allowed_spans: Sequence['SourceSpan'], base
             if claim.unit != base_unit:
                 reject('UNIT_MISMATCH')
                 continue
-            supported = _supported_quantity(claim.value, base_unit, quote)
+            supported = (_supported_quantity(claim.value, base_unit, quote)
+                         or claim.field == 'reserved' and _reserved_counted_clause(claim.value, base_unit, quote))
         else:
             supported = claim.unit is None and re.search(rf'(?<!\w){re.escape(claim.value)}(?!\w)', quote) is not None
             if claim.field == 'observed_at':

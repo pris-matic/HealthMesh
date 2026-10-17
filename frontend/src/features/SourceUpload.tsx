@@ -1,20 +1,29 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { uploadSource } from '../api';
-import type { ScenarioDto, SourceDto } from '../types';
+import { extractSource, uploadSource } from '../api';
+import type { ExtractionReceiptDto, ScenarioDto, SourceDto } from '../types';
+import { ExtractionReceipt } from './ExtractionReceipt';
 
 export function SourceUpload({ scenario }: { scenario: ScenarioDto }) {
   const [facility, setFacility] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<SourceDto | null>(null);
+  const [extraction, setExtraction] = useState<ExtractionReceiptDto | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!file || !facility) return;
-    setBusy(true); setError(''); setSource(null);
+    setBusy(true); setError(''); setSource(null); setExtraction(null);
     try { setSource(await uploadSource(scenario.id, facility, file)); }
     catch (err) { setError(err instanceof Error ? err.message : 'Source import failed.'); }
+    finally { setBusy(false); }
+  }
+  async function extract() {
+    if (!source) return;
+    setBusy(true); setError(''); setExtraction(null);
+    try { setExtraction(await extractSource(source.id)); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Extraction failed.'); }
     finally { setBusy(false); }
   }
   return <section className="panel" aria-labelledby="upload-title">
@@ -37,7 +46,11 @@ export function SourceUpload({ scenario }: { scenario: ScenarioDto }) {
     {source && <div role="status" style={{ overflowWrap: 'anywhere' }}>
       <p>{source.duplicate ? 'Already imported' : 'Imported'} source: {source.id}</p>
       <p>SHA-256: {source.sha256}</p>
-      <p>Evidence remains unverified. Text extraction has not run. The saved plan remains at its frozen revision.</p>
+      <p>Evidence remains unverified. {extraction ? 'Extraction recorded.' : 'Text extraction has not run.'} The saved plan remains at its frozen revision.</p>
+      {source.kind === 'RAW_TEXT' && <button type="button" className="secondary" disabled={busy} onClick={extract}>
+        {busy ? 'Extracting…' : 'Extract with AMD'}
+      </button>}
     </div>}
+    {extraction && <ExtractionReceipt result={extraction} />}
   </section>;
 }

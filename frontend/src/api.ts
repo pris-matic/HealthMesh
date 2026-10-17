@@ -1,4 +1,4 @@
-import type { AMDHealthDto, PlanDto, ScenarioDto, SessionDto, SourceDto } from './types';
+import type { AMDHealthDto, ExtractionReceiptDto, PlanDto, ScenarioDto, SessionDto, SourceDto } from './types';
 let csrfToken = '';
 async function request<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
   const response = await fetch(`/api/v1${path}`, { method, credentials: 'same-origin',
@@ -26,3 +26,5 @@ export function uploadSource(incidentId: string, facilityId: string, file: File)
   data.append('file', file);
   return request('/sources', 'POST', data);
 }
+export const extractSource = (sourceId: string): Promise<ExtractionReceiptDto> =>
+  request(`/sources/${sourceId}/extract`, 'POST');

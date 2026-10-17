@@ -177,6 +177,29 @@ def test_numeric_support_cannot_start_inside_signed_or_grouped_number(text):
     assert result.quarantined[0].reason == 'VALUE_NOT_SUPPORTED'
 
 
+@pytest.mark.parametrize(('text', 'value', 'accepted'), [
+    ('counted 80 boxes, 25 reserved for clinics.', 25, True),
+    ('counted 80 box, 25 reserved for clinics.', 25, True),
+    ('counted 80 boxes, 45 reserved for clinics.', 25, False),
+    ('counted 80 boxes, -25 reserved for clinics.', 25, False),
+    ('counted 80 boxes, \u221225 reserved for clinics.', 25, False),
+    ('counted 80 boxes, 1 025 reserved for clinics.', 25, False),
+    ('counted 80 vials, 25 reserved for clinics.', 25, False),
+    ('counted 80 boxes. 25 reserved for clinics.', 25, False),
+    ('counted 80 boxes, 30 held; 25 reserved for clinics.', 25, False),
+    ('unrelated 25 reserved for clinics.', 25, False),
+])
+def test_reserved_unit_scopes_only_the_exact_counted_clause(text, value, accepted):
+    span = issued(text)
+    result = validation.validate_extraction({'claims': [candidate(span, field='reserved', value=value)]},
+                                            [span], 'box')
+    assert (len(result.accepted) == 1) is accepted
+    if accepted:
+        assert result.accepted[0].status == 'OBSERVED_UNVERIFIED'
+    else:
+        assert result.quarantined[0].reason == 'VALUE_NOT_SUPPORTED'
+
+
 @pytest.mark.django_db
 def test_validation_never_changes_snapshot_or_persists_rejected_claims(django_user_model):
     from healthmesh.domain.snapshot import build_snapshot

@@ -18,3 +18,4 @@ test = ["pytest==8.4.2", "pytest-django==4.11.1"]
 DJANGO_SETTINGS_MODULE = "config.settings"
 pythonpath = ["."]
 testpaths = ["healthmesh/tests"]
+markers = ["amd_live: makes a genuine AMD Token Factory request"]

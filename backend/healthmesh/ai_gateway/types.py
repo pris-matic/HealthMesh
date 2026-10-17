@@ -45,8 +45,14 @@ class Outcome(Contract):
 
 
 class ExtractionResult(Outcome):
-    # Raw candidates require Task 7 validation before storage as unverified claims.
+    # This transport-only value is never serialized, logged or persisted. The
+    # orchestration service hands it unchanged to the exact-decimal validator.
+    raw_content: str | None = Field(default=None, exclude=True, repr=False)
     claims: tuple[dict[str, object], ...] = ()
+    receipt_id: UUID | None = None
+    accepted_count: int = Field(default=0, ge=0)
+    rejected_count: int = Field(default=0, ge=0)
+    new_revision: int | None = Field(default=None, ge=0)
 
     @model_validator(mode='after')
     def no_failed_claims(self):

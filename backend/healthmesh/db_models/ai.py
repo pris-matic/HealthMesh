@@ -31,3 +31,20 @@ class AIInferenceReceipt(Record):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Inference receipts are append-only.')
+
+
+class AIExtractionRun(Record):
+    """Business provenance for a completed call, separate from receipt telemetry."""
+    source = models.ForeignKey('healthmesh.SourceDocument', on_delete=models.PROTECT)
+    receipt = models.OneToOneField(AIInferenceReceipt, on_delete=models.PROTECT)
+    accepted_count = models.PositiveIntegerField()
+    rejected_count = models.PositiveIntegerField()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding or type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Extraction runs are append-only.')
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Extraction runs are append-only.')
