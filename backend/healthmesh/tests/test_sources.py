@@ -215,3 +215,16 @@ def test_csv_rejects_unicode_separator_in_timestamp(context):
     response = upload(context, CSV.replace('T11:', '\u202811:'))
     assert response.status_code == 400
     assert counts(context[1]) == before
+
+
+@pytest.mark.parametrize('label', [
+    'MRN_number', 'patient_dob', 'patient_first_name',
+    'record_patient_dob', 'MRN-number', 'patient-dob', 'patient first name',
+])
+def test_personal_field_label_separators_reject_without_evidence(context, label):
+    before = counts(context[1])
+    response = upload(context, f'SYNTHETIC supply report\n{label}: fictional value', 'unsafe.txt')
+    assert response.status_code == 400
+    assert response.json()['code'] == 'invalid_source'
+    assert response.json()['field_errors']['file']
+    assert counts(context[1]) == before

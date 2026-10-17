@@ -17,7 +17,11 @@ PHONE = re.compile(r'(?<!\w)(?:\+\d{1,3}[ .-]?)?(?:\(?\d{3}\)?[ .-])\d{3}[ .-]\d
 
 
 def sanitize(text):
-    if SENSITIVE.search(text) or PERSONAL_FIELD.search(text):
+    # Underscores are regex word characters, so field names such as patient_dob
+    # otherwise hide known markers. Normalize only the screening copy: the
+    # returned AMD view must retain the original Unicode character positions.
+    screening_text = text.replace('_', ' ')
+    if SENSITIVE.search(screening_text) or PERSONAL_FIELD.search(screening_text):
         raise ValidationError({'file': 'Personal or clinical data is prohibited. Use synthetic administrative supply data only.'})
     for pattern in (EMAIL, PHONE):
         text = pattern.sub(lambda match: '*' * len(match.group()), text)
