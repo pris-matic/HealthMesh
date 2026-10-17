@@ -1,0 +1,4 @@
+SYNTHETIC administrative supply simulation. Fictional Brook Clinic.
+Report dated 2026-10-17 11:00 UTC, unsigned.
+Medication X, batch MX-01: counted 80 boxes, 25 reserved for scheduled clinics.
+This note is an unverified report; it does not replace the signed inventory.

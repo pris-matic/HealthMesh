@@ -1,0 +1,350 @@
+{
+  "scenario_id": "storm-supply-01",
+  "fixture_revision": 1,
+  "synthetic": true,
+  "public_facts": {
+    "as_of": "2026-10-17T12:00:00Z",
+    "product": {
+      "id": "00000000-0000-4000-8000-000000000020",
+      "code": "SIM-MX-01",
+      "base_unit": "box"
+    },
+    "facilities": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "Aster",
+        "stock": {
+          "batch_id": "00000000-0000-4000-8000-000000000011",
+          "batch_code": "MX-01",
+          "on_hand": 10,
+          "reserved": 0,
+          "protected_reserve": 0,
+          "reserve_accounting": "separate",
+          "expires_on": "2026-12-31",
+          "storage_usable": true,
+          "observed_at": "2026-10-17T10:00:00Z",
+          "count_observed_at": "2026-10-17T10:00:00Z",
+          "count_source_id": "00000000-0000-4000-8000-000000000101",
+          "current_facts_source_id": "00000000-0000-4000-8000-000000000101"
+        },
+        "daily_demand": [
+          {
+            "date": "2026-10-03",
+            "units": 5
+          },
+          {
+            "date": "2026-10-04",
+            "units": 5
+          },
+          {
+            "date": "2026-10-05",
+            "units": 5
+          },
+          {
+            "date": "2026-10-06",
+            "units": 5
+          },
+          {
+            "date": "2026-10-07",
+            "units": 5
+          },
+          {
+            "date": "2026-10-08",
+            "units": 5
+          },
+          {
+            "date": "2026-10-09",
+            "units": 5
+          },
+          {
+            "date": "2026-10-10",
+            "units": 5
+          },
+          {
+            "date": "2026-10-11",
+            "units": 5
+          },
+          {
+            "date": "2026-10-12",
+            "units": 5
+          },
+          {
+            "date": "2026-10-13",
+            "units": 5
+          },
+          {
+            "date": "2026-10-14",
+            "units": 5
+          },
+          {
+            "date": "2026-10-15",
+            "units": 5
+          },
+          {
+            "date": "2026-10-16",
+            "units": 5
+          }
+        ]
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "name": "Brook",
+        "stock": {
+          "batch_id": "00000000-0000-4000-8000-000000000012",
+          "batch_code": "MX-01",
+          "on_hand": 95,
+          "reserved": 25,
+          "protected_reserve": 20,
+          "reserve_accounting": "separate",
+          "expires_on": "2026-12-31",
+          "storage_usable": true,
+          "observed_at": "2026-10-17T10:00:00Z",
+          "count_observed_at": "2026-10-15T09:00:00Z",
+          "count_source_id": "00000000-0000-4000-8000-000000000104",
+          "current_facts_source_id": "00000000-0000-4000-8000-000000000102"
+        },
+        "daily_demand": [
+          {
+            "date": "2026-10-03",
+            "units": 2
+          },
+          {
+            "date": "2026-10-04",
+            "units": 2
+          },
+          {
+            "date": "2026-10-05",
+            "units": 2
+          },
+          {
+            "date": "2026-10-06",
+            "units": 2
+          },
+          {
+            "date": "2026-10-07",
+            "units": 2
+          },
+          {
+            "date": "2026-10-08",
+            "units": 2
+          },
+          {
+            "date": "2026-10-09",
+            "units": 2
+          },
+          {
+            "date": "2026-10-10",
+            "units": 2
+          },
+          {
+            "date": "2026-10-11",
+            "units": 2
+          },
+          {
+            "date": "2026-10-12",
+            "units": 2
+          },
+          {
+            "date": "2026-10-13",
+            "units": 2
+          },
+          {
+            "date": "2026-10-14",
+            "units": 2
+          },
+          {
+            "date": "2026-10-15",
+            "units": 2
+          },
+          {
+            "date": "2026-10-16",
+            "units": 2
+          }
+        ]
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "name": "Cedar",
+        "stock": {
+          "batch_id": "00000000-0000-4000-8000-000000000013",
+          "batch_code": "MX-01",
+          "on_hand": 55,
+          "reserved": 0,
+          "protected_reserve": 10,
+          "reserve_accounting": "separate",
+          "expires_on": "2026-12-31",
+          "storage_usable": true,
+          "observed_at": "2026-10-17T10:00:00Z",
+          "count_observed_at": "2026-10-17T10:00:00Z",
+          "count_source_id": "00000000-0000-4000-8000-000000000103",
+          "current_facts_source_id": "00000000-0000-4000-8000-000000000103"
+        },
+        "daily_demand": [
+          {
+            "date": "2026-10-03",
+            "units": 2
+          },
+          {
+            "date": "2026-10-04",
+            "units": 2
+          },
+          {
+            "date": "2026-10-05",
+            "units": 2
+          },
+          {
+            "date": "2026-10-06",
+            "units": 2
+          },
+          {
+            "date": "2026-10-07",
+            "units": 2
+          },
+          {
+            "date": "2026-10-08",
+            "units": 2
+          },
+          {
+            "date": "2026-10-09",
+            "units": 2
+          },
+          {
+            "date": "2026-10-10",
+            "units": 2
+          },
+          {
+            "date": "2026-10-11",
+            "units": 2
+          },
+          {
+            "date": "2026-10-12",
+            "units": 2
+          },
+          {
+            "date": "2026-10-13",
+            "units": 2
+          },
+          {
+            "date": "2026-10-14",
+            "units": 2
+          },
+          {
+            "date": "2026-10-15",
+            "units": 2
+          },
+          {
+            "date": "2026-10-16",
+            "units": 2
+          }
+        ]
+      }
+    ],
+    "request": {
+      "id": "00000000-0000-4000-8000-000000000030",
+      "facility_id": "00000000-0000-4000-8000-000000000001",
+      "quantity": 40,
+      "is_net_transfer_request": true,
+      "need_by": "2026-10-18T12:00:00Z",
+      "source_id": "00000000-0000-4000-8000-000000000101"
+    },
+    "routes": [
+      {
+        "id": "00000000-0000-4000-8000-000000000042",
+        "origin_id": "00000000-0000-4000-8000-000000000002",
+        "destination_id": "00000000-0000-4000-8000-000000000001",
+        "status": "OPEN",
+        "verified_open_eta_hours": 2,
+        "observed_at": "2026-10-17T10:00:00Z",
+        "source_id": "00000000-0000-4000-8000-000000000102"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000043",
+        "origin_id": "00000000-0000-4000-8000-000000000003",
+        "destination_id": "00000000-0000-4000-8000-000000000001",
+        "status": "UNKNOWN",
+        "verified_open_eta_hours": 3,
+        "observed_at": "2026-10-17T10:00:00Z",
+        "source_id": "00000000-0000-4000-8000-000000000103"
+      }
+    ]
+  },
+  "source_references": [
+    {
+      "id": "00000000-0000-4000-8000-000000000101",
+      "kind": "SIGNED_FIXTURE",
+      "observed_at": "2026-10-17T10:00:00Z",
+      "verified": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000102",
+      "kind": "SIGNED_FIXTURE",
+      "observed_at": "2026-10-17T10:00:00Z",
+      "verified": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000103",
+      "kind": "SIGNED_FIXTURE",
+      "observed_at": "2026-10-17T10:00:00Z",
+      "verified": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000104",
+      "kind": "SIGNED_FIXTURE",
+      "observed_at": "2026-10-15T09:00:00Z",
+      "verified": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000105",
+      "kind": "RAW_TEXT",
+      "observed_at": "2026-10-17T11:00:00Z",
+      "verified": false,
+      "path": "fixtures/sources/brook-note.txt",
+      "sha256": "84b3f9e4d993594252d15f17a7a0a42b449aa1300072d42a2951b40514dc43c7"
+    }
+  ],
+  "policy": {
+    "freshness_hours": 24,
+    "coverage_alert_days": 3,
+    "protected_reserve_counts_for_local_coverage": true,
+    "unit_aliases": {
+      "boxes": "box"
+    },
+    "verification_budget": {
+      "staff_minutes": 10,
+      "questions": 1
+    },
+    "verification_tasks": [
+      {
+        "facility_id": "00000000-0000-4000-8000-000000000002",
+        "field": "on_hand",
+        "staff_minutes": 3,
+        "response_delay_minutes": 10
+      },
+      {
+        "facility_id": "00000000-0000-4000-8000-000000000003",
+        "field": "route_status",
+        "staff_minutes": 5,
+        "response_delay_minutes": 20
+      }
+    ],
+    "public_possibilities": {
+      "synthetic": true,
+      "brook_on_hand": [
+        70,
+        90
+      ],
+      "cedar_route": [
+        "CLOSED",
+        "OPEN"
+      ],
+      "weights": null
+    },
+    "loss": {
+      "version": "LOSS_POLICY_V1",
+      "unmet_units_by_deadline": 100,
+      "travel_hours": 1,
+      "verification_staff_minutes": 0.2,
+      "response_delay_hours": 1
+    }
+  }
+}
