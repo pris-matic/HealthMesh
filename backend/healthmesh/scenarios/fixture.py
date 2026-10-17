@@ -62,6 +62,7 @@ class Facility(PublicModel):
     name: Literal["Aster", "Brook", "Cedar"]
     stock: Stock
     daily_demand: tuple[Demand, ...] = Field(min_length=14, max_length=14)
+    demand_source_id: UUID
 
 
 class Request(PublicModel):
@@ -187,6 +188,7 @@ class ScenarioSeed(PublicModel):
         required = [(facts.request.source_id, None)]
         for facility in facts.facilities:
             stock = facility.stock
+            required.append((facility.demand_source_id, None))
             required.extend(((stock.count_source_id, stock.count_observed_at),
                              (stock.current_facts_source_id, stock.observed_at)))
         required.extend((route.source_id, route.observed_at) for route in facts.routes)

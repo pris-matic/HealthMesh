@@ -33,8 +33,12 @@ def test_storm_fixture_is_complete_and_synthetic():
     assert cedar.stock.on_hand == 55
     assert cedar.stock.reserved == 0
     assert cedar.stock.protected_reserve == 10
+    sources = {source.id: source for source in seed.source_references}
     for facility in facts.facilities:
         assert isinstance(facility.id, UUID)
+        demand_source = sources[facility.demand_source_id]
+        assert demand_source.kind == 'SIGNED_FIXTURE'
+        assert demand_source.verified is True
         assert len(facility.daily_demand) == 14
         assert [row.units for row in facility.daily_demand] == [5 if facility.name == 'Aster' else 2] * 14
         assert str(facility.daily_demand[0].date) == '2026-10-03'
@@ -106,3 +110,24 @@ def test_bad_fixture_fails_closed(tmp_path, monkeypatch, mutation):
 def test_scenario_id_cannot_escape_fixture_directory():
     with pytest.raises(ScenarioValidationError):
         load_scenario('../evaluation/held_out')
+
+
+@pytest.mark.parametrize('facility_index', [0, 1, 2])
+@pytest.mark.parametrize('mutation', ['missing', 'unknown', 'unsigned'])
+def test_bad_fixture_rejects_demand_provenance(tmp_path, monkeypatch, facility_index, mutation):
+    import healthmesh.scenarios.fixture as fixture
+    data = json.loads((ROOT / 'fixtures/scenarios/storm-supply-01.json').read_text())
+    facility = data['public_facts']['facilities'][facility_index]
+    if mutation == 'missing':
+        facility.pop('demand_source_id', None)
+        expected_error = 'demand_source_id'
+    else:
+        facility['demand_source_id'] = (
+            '00000000-0000-4000-8000-000000000999' if mutation == 'unknown'
+            else next(source['id'] for source in data['source_references'] if source['kind'] == 'RAW_TEXT')
+        )
+        expected_error = 'signed source'
+    (tmp_path / 'storm-supply-01.json').write_text(json.dumps(data))
+    monkeypatch.setattr(fixture, 'SCENARIO_DIR', tmp_path)
+    with pytest.raises(ScenarioValidationError, match=expected_error):
+        load_scenario('storm-supply-01')
