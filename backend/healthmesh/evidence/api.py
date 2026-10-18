@@ -1,6 +1,8 @@
 """Read-only, sanitized provenance view for synthetic incident evidence."""
 from datetime import timedelta
+import time
 
+from django.db import OperationalError, connection, transaction
 from django.http import JsonResponse
 
 from healthmesh.models import EvidenceConflict, Incident, InventoryClaim
@@ -9,7 +11,25 @@ from healthmesh.workflow.auth import api, error
 
 @api(['GET'])
 def evidence(request, incident_id):
-    incident = Incident.objects.filter(pk=incident_id, synthetic=True).first()
+    # SQLite's shared-cache test database may report a lock instead of waiting
+    # for the competing writer. Release the read transaction and retry a fresh
+    # revision; never combine results from two attempts.
+    for attempt in range(3):
+        try:
+            return _evidence_response(incident_id)
+        except OperationalError as exc:
+            if connection.vendor != 'sqlite' or 'locked' not in str(exc).lower():
+                raise
+            if attempt == 2:
+                return error('temporarily_unavailable', 'Evidence is busy. Retry this read.', 503)
+            time.sleep(.05 * (attempt + 1))
+
+
+@transaction.atomic
+def _evidence_response(incident_id):
+    # Every incident evidence writer locks this row before changing claims or
+    # conflicts. Hold it through all reads so one response describes one revision.
+    incident = Incident.objects.select_for_update().filter(pk=incident_id, synthetic=True).first()
     if incident is None:
         return error('not_found', 'Incident not found.', 404)
     freshness = timedelta(hours=incident.policy['freshness_hours'])

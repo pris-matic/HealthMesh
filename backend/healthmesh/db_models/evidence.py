@@ -47,3 +47,8 @@ class EvidenceConflict(IncidentRecord):
             raise ValidationError({'claim_ids': 'Equivalent values do not form a conflict.'})
         if self.state == 'OPEN' and self.resolution_id is not None:
             raise ValidationError({'resolution_id': 'Only a resolved conflict can have a resolution.'})
+        if self.state == 'RESOLVED':
+            selected = next((claim for claim in claims if claim.id == self.resolution_id), None)
+            if (selected is None or selected.status != 'HUMAN_VERIFIED'
+                    or selected.source.kind != 'MANUAL' or not selected.source.verified):
+                raise ValidationError({'resolution_id': 'Resolution must cite an included verified human manual claim.'})

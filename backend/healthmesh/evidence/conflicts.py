@@ -13,6 +13,17 @@ def _value_key(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 
 
+def _covered_by_resolution(row, claims):
+    """A new observation agrees only when it matches the selected human value."""
+    selected = next((claim for claim in claims if claim.id == row.resolution_id), None)
+    if selected is None:
+        return False
+    reviewed_ids = set(row.claim_ids)
+    selected_value = _value_key(selected.value)
+    return all(str(claim.id) in reviewed_ids or _value_key(claim.value) == selected_value
+               for claim in claims)
+
+
 @transaction.atomic
 def detect_conflicts(incident_id: UUID) -> list[EvidenceConflict]:
     """Persist changed field conflicts once; a repeated scan is read only."""
@@ -36,7 +47,8 @@ def detect_conflicts(incident_id: UUID) -> list[EvidenceConflict]:
         if active:
             if active.claim_ids != claim_ids:
                 changes.append(('update', active, claim_ids))
-        elif not any(set(claim_ids) <= set(row.claim_ids) for row in resolved_by_field[key]):
+        elif not (resolved_by_field[key] and
+                  _covered_by_resolution(resolved_by_field[key][-1], claims)):
             changes.append(('create', key, claim_ids))
 
     if changes:

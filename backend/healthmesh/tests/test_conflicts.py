@@ -1,10 +1,14 @@
 """Conflicting observations stay visible and block readiness until reviewed."""
+import time
 from datetime import datetime, timezone
+from threading import Event, Thread
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
+from django.db import OperationalError, close_old_connections
 from django.test import Client
 
 from healthmesh.domain.snapshot import build_snapshot
@@ -167,11 +171,36 @@ def test_resolved_conflict_covers_its_manual_resolution_claim(case):
     case.incident.refresh_from_db()
     assert case.incident.revision == before
     assert EvidenceConflict.objects.get(pk=conflict.id).state == 'RESOLVED'
+    equivalent = _note_claim(case, 'on_hand', 90,
+        'SYNTHETIC Brook counted 90 boxes at 2026-10-17T12:00:00Z')
+    case.incident.refresh_from_db()
+    before_equivalent_scan = case.incident.revision
+    assert detect_conflicts(case.incident.id) == []
+    case.incident.refresh_from_db()
+    assert case.incident.revision == before_equivalent_scan
+    assert str(equivalent.id) not in EvidenceConflict.objects.get(pk=conflict.id).claim_ids
     _note_claim(case, 'on_hand', 70,
         'SYNTHETIC Brook counted 70 boxes at 2026-10-17T12:00:00Z')
     reopened = detect_conflicts(case.incident.id)
     assert len(reopened) == 1 and reopened[0].id != conflict.id
     assert set(conflict.claim_ids) < set(reopened[0].claim_ids)
+
+
+def test_resolution_link_must_identify_included_human_manual_claim(case):
+    from healthmesh.evidence.conflicts import detect_conflicts
+
+    _note_claim(case, 'on_hand', 80)
+    conflict = detect_conflicts(case.incident.id)[0]
+    conflict.state = 'RESOLVED'
+    with pytest.raises(ValidationError):
+        conflict.save()
+    conflict.resolution_id = uuid4()
+    with pytest.raises(ValidationError):
+        conflict.save()
+    conflict.resolution_id = CanonicalFact.objects.get(
+        incident=case.incident, subject_id=case.brook.id, field='on_hand').claim_id
+    with pytest.raises(ValidationError):
+        conflict.save()
 
 
 def test_evidence_api_is_read_only_and_exposes_quotes_times_and_receipt_ids(case):
@@ -212,3 +241,62 @@ def test_evidence_api_is_read_only_and_exposes_quotes_times_and_receipt_ids(case
     assert case.client.get(path).json() == payload
     case.incident.refresh_from_db()
     assert case.incident.revision == before
+
+
+@pytest.mark.django_db(transaction=True)
+def test_evidence_get_never_mixes_revision_with_concurrent_import(case, monkeypatch):
+    from healthmesh.models import EvidenceConflict
+    from healthmesh.sources.service import ingest_source
+
+    content = ('synthetic,product_code,batch_code,base_unit,reserve_accounting,on_hand,reserved,protected_reserve,observed_at\r\n'
+               'true,SIM-MX-01,MX-01,box,separate,80,25,20,2026-10-17T11:00:00Z\r\n').encode()
+    before = case.incident.revision
+    started, committed = Event(), Event()
+    errors = []
+
+    def writer():
+        close_old_connections()
+        started.set()
+        try:
+            for _ in range(30):
+                try:
+                    ingest_source(case.incident.id, case.brook.facility_id,
+                                  'interleaved.csv', content, case.incident.created_by)
+                    committed.set()
+                    return
+                except OperationalError as exc:
+                    if 'locked' not in str(exc).lower():
+                        raise
+                    time.sleep(.05)
+            errors.append('Writer remained locked after evidence read finished')
+        except Exception as exc:
+            errors.append(repr(exc))
+        finally:
+            close_old_connections()
+
+    original_filter = EvidenceConflict.objects.filter
+    background = None
+
+    def interleave(*args, **kwargs):
+        nonlocal background
+        monkeypatch.setattr(EvidenceConflict.objects, 'filter', original_filter)
+        background = Thread(target=writer)
+        background.start()
+        assert started.wait(1)
+        committed.wait(1)
+        return original_filter(*args, **kwargs)
+
+    monkeypatch.setattr(EvidenceConflict.objects, 'filter', interleave)
+    response = case.client.get(f'/api/v1/incidents/{case.incident.id}/evidence')
+    assert response.status_code == 200, response.content
+    payload = response.json()
+    assert background is not None
+    background.join(timeout=5)
+    assert not background.is_alive() and committed.is_set() and not errors
+    new_count = [row for row in payload['claims'] if row['subject_id'] == str(case.brook.id)
+                 and row['field'] == 'on_hand' and row['value'] == 80]
+    if payload['revision'] == before:
+        assert new_count == [] and payload['conflicts'] == []
+    else:
+        assert payload['revision'] == before + 1 and len(new_count) == 1
+        assert any(row['field'] == 'on_hand' and row['state'] == 'OPEN' for row in payload['conflicts'])
