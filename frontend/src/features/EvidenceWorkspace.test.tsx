@@ -67,3 +67,40 @@ test('loaded incident opens the read-only evidence workspace from the main scree
   expect(await screen.findByText(/Incident revision 2/)).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Evidence workspace' })).toBeInTheDocument();
 });
+
+test('explicit explanation labels AMD wording and retains source evidence beside it', async () => {
+  const explain = vi.fn(async () => ({ conflict_id: 'conflict', status: 'SUCCESS' as const,
+    source: 'AMD_GENERATED_UNVERIFIED_WORDING' as const,
+    text: 'Brook on-hand observations differ: 95 boxes [A] and 80 boxes [B].',
+    cited_span_ids: ['signed-span', 'note-span'], receipt_id: 'grounded-receipt',
+    receipt: { provider: 'AMD' as const, model_id: 'DeepSeek-V4-Flash',
+      timestamp: '2026-10-17T12:00:00Z', latency_ms: 123, status: 'SUCCESS' as const,
+      request_id: null, input_schema_version: 'conflict-v1', output_schema_version: 'grounding-v1' } }));
+  const evidence: EvidenceDto = {
+    incident_id: 'incident', revision: 3, as_of: '2026-10-17T12:00:00Z',
+    claims: [
+      { id: 'signed-95', subject_id: 'brook-batch', field: 'on_hand', value: 95,
+        status: 'HUMAN_VERIFIED', field_status: 'CONFLICTED', freshness: 'STALE',
+        observed_at: '2026-10-16T07:00:00Z', receipt_id: null,
+        source: { id: 'old-source', kind: 'SIGNED_FIXTURE', observed_at: '2026-10-16T07:00:00Z', verified: true },
+        span: { id: 'signed-span', start: 400, end: 413, quote: '"on_hand": 95' } },
+      { id: 'candidate-80', subject_id: 'brook-batch', field: 'on_hand', value: 80,
+        status: 'OBSERVED_UNVERIFIED', field_status: 'CONFLICTED', freshness: 'FRESH',
+        observed_at: '2026-10-17T11:00:00Z', receipt_id: null,
+        source: { id: 'note-source', kind: 'RAW_TEXT', observed_at: '2026-10-17T11:00:00Z', verified: false },
+        span: { id: 'note-span', start: 20, end: 49, quote: 'Brook counted 80 boxes, 25 reserved' } },
+    ], conflicts: [{ id: 'conflict', field_key: 'brook-batch:on_hand', subject_id: 'brook-batch',
+      field: 'on_hand', claim_ids: ['signed-95', 'candidate-80'], conflict_type: 'VALUE_DISAGREEMENT',
+      state: 'OPEN', resolution_id: null, created_at: '2026-10-17T12:00:00Z' }],
+  };
+  const view = render(<EvidenceWorkspace evidence={evidence} onExplain={explain} />);
+  expect(explain).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /Ask AMD to explain on hand conflict/i }));
+  expect(await screen.findByText(/AI generated wording, unverified/i)).toBeInTheDocument();
+  expect(screen.getByText('Brook on-hand observations differ: 95 boxes [A] and 80 boxes [B].')).toBeInTheDocument();
+  expect(screen.getByText(/grounded-receipt/)).toBeInTheDocument();
+  expect(screen.getByText('"on_hand": 95')).toBeInTheDocument();
+  expect(screen.getByText('Brook counted 80 boxes, 25 reserved')).toBeInTheDocument();
+  view.rerender(<EvidenceWorkspace evidence={{ ...evidence, revision: 4 }} onExplain={explain} />);
+  expect(screen.queryByText('Brook on-hand observations differ: 95 boxes [A] and 80 boxes [B].')).not.toBeInTheDocument();
+});

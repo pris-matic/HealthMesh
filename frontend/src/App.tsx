@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { amdHealth, createScenario, getEvidence, getVerificationOptions, requestPlan, selectVerification, session } from './api';
-import type { EvidenceDto, PlanDto, RankingDto, ScenarioDto, SessionDto } from './types';
+import { amdHealth, createScenario, draftVerification, explainConflict, getEvidence, getVerificationOptions, requestPlan, selectVerification, session } from './api';
+import type { EvidenceDto, GroundedWordingDto, PlanDto, RankingDto, ScenarioDto, SessionDto } from './types';
 import { Login } from './features/Login';
 import { PlanPreview } from './features/PlanPreview';
 import { SourceUpload } from './features/SourceUpload';
@@ -16,6 +16,7 @@ export default function App() {
   const [evidenceVersion, setEvidenceVersion] = useState(0);
   const [evidenceError, setEvidenceError] = useState('');
   const [ranking, setRanking] = useState<RankingDto | null>(null);
+  const [selectedFallback, setSelectedFallback] = useState<GroundedWordingDto | null>(null);
   const [rankingError, setRankingError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -47,14 +48,17 @@ export default function App() {
     if (!incidentId || !ranking) return;
     setBusy(true); setRankingError('');
     try {
-      await selectVerification(incidentId, subjectId, field, ranking.revision);
+      const selection = await selectVerification(incidentId, subjectId, field, ranking.revision);
+      setSelectedFallback(selection.grounded_wording);
       setRanking(await getVerificationOptions(incidentId));
     } catch (err) { setRankingError(err instanceof Error ? err.message : 'Could not select question.'); }
     finally { setBusy(false); }
   }
   async function generate() {
     setBusy(true); setError(''); setPlan(null);
-    try { const incident = scenario ?? await createScenario(); setScenario(incident); setPlan(await requestPlan(incident.id)); }
+    try { const incident = scenario ?? await createScenario();
+      if (!scenario) setSelectedFallback(null);
+      setScenario(incident); setPlan(await requestPlan(incident.id)); }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not generate a plan.'); }
     finally { setBusy(false); }
   }
@@ -62,7 +66,7 @@ export default function App() {
     <header><div><p className="eyebrow">HealthMesh / Supply coordination</p><h1>Evidence before action.</h1><p>Compare conditional supply options for three fictional facilities.</p></div>
       {account?.user && <div><p>{account.user.username} · {account.user.role}</p><button className="secondary" disabled={busy} onClick={async () => {
         setBusy(true); setError('');
-        try { setAccount(await session('DELETE')); setScenario(null); setPlan(null); setEvidence(null); setRanking(null); setShowEvidence(false); }
+        try { setAccount(await session('DELETE')); setScenario(null); setPlan(null); setEvidence(null); setRanking(null); setSelectedFallback(null); setShowEvidence(false); }
         catch (err) { setError(err instanceof Error ? err.message : 'Sign-out failed.'); }
         finally { setBusy(false); }
       }}>Sign out</button></div>}
@@ -80,10 +84,12 @@ export default function App() {
       {scenario && <><button className="secondary" type="button" onClick={() => setShowEvidence(value => !value)}>
         {showEvidence ? 'Hide evidence' : 'View evidence'}
       </button>{showEvidence && (evidenceError ? <p role="alert">{evidenceError}</p> : evidence ?
-        <EvidenceWorkspace evidence={evidence} /> : <p role="status">Loading evidence…</p>)}</>}
+        <EvidenceWorkspace evidence={evidence} onExplain={account.user.role === 'coordinator' ? explainConflict : undefined} /> : <p role="status">Loading evidence…</p>)}</>}
       {plan && <><PlanPreview plan={plan} />
         {rankingError && <p role="alert">{rankingError}</p>}
         {ranking && <VerificationDesk ranking={ranking} onSelect={chooseQuestion}
+          selectedFallback={selectedFallback}
+          onDraft={account.user.role === 'coordinator' ? draftVerification : undefined}
           canSelect={account.user.role === 'coordinator' && !busy && !ranking.selected_task} />}</>}</>}
   </main></>;
 }

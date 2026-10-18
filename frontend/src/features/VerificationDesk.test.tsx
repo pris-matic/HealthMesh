@@ -52,3 +52,31 @@ test('explicit public weights show synthetic expected-loss value rather than no-
   expect(screen.getByText(/1998.23 synthetic loss units/)).toBeInTheDocument();
   expect(screen.queryByText(/No probabilities are assigned/)).not.toBeInTheDocument();
 });
+
+test('selected task shows deterministic fallback and requests AMD draft only on click', async () => {
+  const ranking: RankingDto = { snapshot_id: 'incident:3', revision: 3,
+    tasks: [], valuation_mode: 'DETERMINISTIC_SENSITIVITY', net_value_estimate: null,
+    must_verify_before_approval: true, remaining_staff_minutes: 7, remaining_questions: 0,
+    selected_task: { id: 'task-1', incident_id: 'incident', subject_id: 'brook', field: 'on_hand',
+      selected_snapshot_revision: 3, staff_minutes: 3, response_delay_minutes: 10,
+      selected_at: '2026-10-17T12:00:00Z', due_at: '2026-10-17T12:10:00Z',
+      evidence_ids: ['signed-95', 'candidate-80'] } };
+  const draft = vi.fn(async () => ({ task_id: 'task-1', status: 'SUCCESS' as const,
+    source: 'AMD_GENERATED_UNVERIFIED_WORDING' as const,
+    text: 'Can you confirm the Brook on-hand box count from 95 boxes [A] and 80 boxes [B]?',
+    cited_span_ids: ['signed-span', 'note-span'], receipt_id: 'question-receipt',
+    receipt: { provider: 'AMD' as const, model_id: 'DeepSeek-V4-Flash',
+      timestamp: '2026-10-17T12:00:00Z', latency_ms: 123, status: 'SUCCESS' as const,
+      request_id: null, input_schema_version: 'question-v1', output_schema_version: 'grounding-v1' } }));
+  render(<VerificationDesk ranking={ranking} onSelect={() => {}} canSelect={false}
+    selectedFallback={{ status: 'UNAVAILABLE', source: 'DETERMINISTIC_FALLBACK',
+      text: 'Please confirm Brook on-hand box count using [A] and [B]?',
+      cited_span_ids: ['signed-span', 'note-span'], receipt_id: null, receipt: null }}
+    onDraft={draft} />);
+  expect(screen.getByText(/Deterministic question/)).toBeInTheDocument();
+  expect(draft).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /Ask AMD to draft selected question/i }));
+  expect(await screen.findByText(/AI generated wording, unverified/i)).toBeInTheDocument();
+  expect(screen.getByText(/question-receipt/)).toBeInTheDocument();
+  expect(draft).toHaveBeenCalledWith('task-1');
+});

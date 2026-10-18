@@ -1,4 +1,4 @@
-import type { AMDHealthDto, EvidenceDto, ExtractionReceiptDto, PlanDto, RankingDto, ScenarioDto, SelectedVerificationTaskDto, SessionDto, SourceDto } from './types';
+import type { AMDHealthDto, EvidenceDto, ExtractionReceiptDto, GroundedWordingDto, PlanDto, RankingDto, ScenarioDto, SelectedVerificationTaskDto, SessionDto, SourceDto } from './types';
 let csrfToken = '';
 async function request<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
   const response = await fetch(`/api/v1${path}`, { method, credentials: 'same-origin',
@@ -21,8 +21,12 @@ export const amdHealth = (): Promise<AMDHealthDto> => request('/amd/health');
 export const requestPlan = (id: string): Promise<PlanDto> => request(`/incidents/${id}/plan`, 'POST');
 export const getEvidence = (id: string): Promise<EvidenceDto> => request(`/incidents/${id}/evidence`);
 export const getVerificationOptions = (id: string): Promise<RankingDto> => request(`/incidents/${id}/verification-tasks`);
-export const selectVerification = (id: string, subjectId: string, field: 'on_hand' | 'route_status', expectedRevision: number): Promise<{selected_task: SelectedVerificationTaskDto; new_revision: null}> =>
+export const selectVerification = (id: string, subjectId: string, field: 'on_hand' | 'route_status', expectedRevision: number): Promise<{selected_task: SelectedVerificationTaskDto; new_revision: null; grounded_wording: GroundedWordingDto}> =>
   request(`/incidents/${id}/verification-tasks`, 'POST', { subject_id: subjectId, field, expected_revision: expectedRevision });
+export const explainConflict = (conflictId: string): Promise<GroundedWordingDto> =>
+  request(`/conflicts/${conflictId}/explain`, 'POST');
+export const draftVerification = (taskId: string): Promise<GroundedWordingDto> =>
+  request(`/verification-tasks/${taskId}/draft`, 'POST');
 export function uploadSource(incidentId: string, facilityId: string, file: File): Promise<SourceDto> {
   const data = new FormData();
   data.append('incident_id', incidentId);

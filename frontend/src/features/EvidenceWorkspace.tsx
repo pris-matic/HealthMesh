@@ -1,4 +1,5 @@
-import type { EvidenceClaimDto, EvidenceDto } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import type { EvidenceClaimDto, EvidenceDto, GroundedWordingDto } from '../types';
 
 function label(field: string) {
   return field.replaceAll('_', ' ').replace(/^./, letter => letter.toUpperCase());
@@ -31,7 +32,17 @@ function ClaimCard({ claim }: { claim: EvidenceClaimDto }) {
   </article>;
 }
 
-export function EvidenceWorkspace({ evidence }: { evidence: EvidenceDto }) {
+export function EvidenceWorkspace({ evidence, onExplain }: {
+  evidence: EvidenceDto;
+  onExplain?: (conflictId: string) => Promise<GroundedWordingDto>;
+}) {
+  const [wording, setWording] = useState<Record<string, GroundedWordingDto>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [wordingError, setWordingError] = useState<Record<string, string>>({});
+  const evidenceKey = `${evidence.incident_id}:${evidence.revision}`;
+  const currentEvidenceKey = useRef(evidenceKey);
+  currentEvidenceKey.current = evidenceKey;
+  useEffect(() => { setWording({}); setWordingError({}); }, [evidenceKey]);
   const open = evidence.conflicts.filter(conflict => conflict.state === 'OPEN');
   const conflictingIds = new Set(open.flatMap(conflict => conflict.claim_ids));
   const other = evidence.claims.filter(claim => !conflictingIds.has(claim.id));
@@ -43,6 +54,23 @@ export function EvidenceWorkspace({ evidence }: { evidence: EvidenceDto }) {
       <h3>{label(conflict.field)} · Conflicted</h3>
       <div className="evidence-grid">{evidence.claims.filter(claim => conflict.claim_ids.includes(claim.id)).map(claim =>
         <ClaimCard key={claim.id} claim={claim} />)}</div>
+      {onExplain && conflict.field === 'on_hand' && <button className="secondary" type="button" disabled={busy !== null}
+        onClick={async () => { const requestedKey = evidenceKey;
+          setBusy(conflict.id); setWordingError(current => ({ ...current, [conflict.id]: '' }));
+          try { const result = await onExplain(conflict.id);
+            if (currentEvidenceKey.current === requestedKey) setWording(current => ({ ...current, [conflict.id]: result })); }
+          catch (err) { if (currentEvidenceKey.current === requestedKey) setWordingError(current => ({ ...current, [conflict.id]:
+            err instanceof Error ? err.message : 'Could not request explanation.' })); }
+          finally { setBusy(null); }
+        }}>Ask AMD to explain {conflict.field.replaceAll('_', ' ')} conflict</button>}
+      {wordingError[conflict.id] && <p role="alert">{wordingError[conflict.id]}</p>}
+      {wording[conflict.id] && <aside className="panel" aria-label="Conflict explanation" role="status">
+        <strong>{wording[conflict.id].source === 'AMD_GENERATED_UNVERIFIED_WORDING'
+          ? 'AI generated wording, unverified' : 'Deterministic explanation'}</strong>
+        <p>{wording[conflict.id].text}</p>
+        <p>Source spans: {wording[conflict.id].cited_span_ids.join(', ')}</p>
+        {wording[conflict.id].receipt_id && <p>AMD receipt {wording[conflict.id].receipt_id}</p>}
+      </aside>}
     </section>)}
     <details><summary>Other source observations ({other.length})</summary>
       <div className="evidence-grid">{other.map(claim => <ClaimCard key={claim.id} claim={claim} />)}</div>

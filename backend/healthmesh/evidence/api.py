@@ -77,6 +77,21 @@ def _task_payload(task):
             'evidence_ids': task.evidence_ids}
 
 
+def _task_fallback(task):
+    """Selection is quota free; AMD wording is an explicit later action."""
+    from healthmesh.ai_gateway.grounding import (GroundingUnavailable,
+                                                 context_for_task, fallback_text)
+    try:
+        context = context_for_task(task)
+        text = fallback_text(context, 'draft')
+        span_ids = [str(line.span.id) for line in context.lines]
+    except GroundingUnavailable:
+        text = 'Please confirm the selected fact from a named human source?'
+        span_ids = []
+    return {'status': 'UNAVAILABLE', 'source': 'DETERMINISTIC_FALLBACK',
+            'text': text, 'cited_span_ids': span_ids, 'receipt_id': None, 'receipt': None}
+
+
 def verification_tasks(request, incident_id):
     if request.method == 'GET':
         return list_verification_tasks(request, incident_id)
@@ -134,7 +149,8 @@ def _create_verification_task_once(request, incident_id, subject_id, field, expe
     replay = next((row for row in existing if row.selected_snapshot_revision == expected
                    and row.subject_id == subject_id and row.field == field), None)
     if replay is not None:
-        return JsonResponse({'selected_task': _task_payload(replay), 'new_revision': None}, status=200)
+        return JsonResponse({'selected_task': _task_payload(replay), 'new_revision': None,
+                             'grounded_wording': _task_fallback(replay)}, status=200)
     if incident.revision != expected:
         return error('stale_snapshot', 'Incident evidence changed; refresh verification options.', 409)
     snapshot = build_snapshot(incident.id)
@@ -152,4 +168,5 @@ def _create_verification_task_once(request, incident_id, subject_id, field, expe
         due_at=snapshot.as_of + timedelta(minutes=selected.response_delay_minutes),
         staff_minutes=selected.staff_minutes, response_delay_minutes=selected.response_delay_minutes,
         evidence_ids=[str(value) for value in selected.evidence_ids])
-    return JsonResponse({'selected_task': _task_payload(task), 'new_revision': None}, status=201)
+    return JsonResponse({'selected_task': _task_payload(task), 'new_revision': None,
+                         'grounded_wording': _task_fallback(task)}, status=201)

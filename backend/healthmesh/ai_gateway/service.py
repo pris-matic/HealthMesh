@@ -126,3 +126,82 @@ def extract_source(source_id, actor) -> ExtractionResult:
     return ExtractionResult(status=status, receipt=metadata, receipt_id=receipt.id,
                             claims=tuple(claim_rows), accepted_count=len(claim_rows),
                             rejected_count=rejected, new_revision=source.incident.revision)
+
+
+def _grounded_result(context, kind, provider, fresh):
+    """Persist only completed-call telemetry, then expose validated transient prose."""
+    from .grounding import fallback_text, validate_grounded_content
+
+    validated = (validate_grounded_content(provider.raw_content, context, kind)
+                 if provider.status == 'SUCCESS' and fresh else None)
+    status = ('SUCCESS' if validated is not None else
+              'INVALID_OUTPUT' if provider.status == 'SUCCESS' else provider.status)
+    metadata = provider.receipt
+    if metadata is not None and metadata.status != status:
+        metadata = metadata.model_copy(update={'status': status})
+    receipt = record_receipt(metadata) if metadata is not None else None
+    return {
+        'status': status,
+        'source': 'AMD_GENERATED_UNVERIFIED_WORDING' if validated else 'DETERMINISTIC_FALLBACK',
+        'text': validated.text if validated else fallback_text(context, kind),
+        'cited_span_ids': [str(value) for value in (
+            validated.cited_span_ids if validated else tuple(line.span.id for line in context.lines))],
+        'receipt_id': str(receipt.id) if receipt else None,
+        'receipt': metadata.model_dump(mode='json') if metadata is not None else None,
+    }
+
+
+def _call_grounded(adapter, operation):
+    from .types import GroundedExplanation
+
+    if isinstance(adapter, UnavailableAMDAdapter):
+        return operation(adapter)
+    with admitted_call() as admitted:
+        if not admitted:
+            return GroundedExplanation(status='UNAVAILABLE')
+        try:
+            return operation(adapter)
+        except TimeoutError:
+            return GroundedExplanation(status='TIMEOUT')
+
+
+def explain_conflict(conflict_id, actor):
+    """One explicit coordinator call; conflict IDs and spans are loaded by the server."""
+    from healthmesh.models import EvidenceConflict, Incident
+    from .grounding import context_for_conflict
+
+    if (not actor or not actor.is_authenticated or not actor.is_active
+            or not actor.groups.filter(name='coordinator').exists()):
+        raise PermissionDenied('An active coordinator is required.')
+    conflict = EvidenceConflict.objects.select_related('incident').get(
+        pk=conflict_id, incident__synthetic=True)
+    context = context_for_conflict(conflict)
+    revision = conflict.incident.revision
+    claim_ids = tuple(conflict.claim_ids)
+    adapter = get_amd_adapter()
+    provider = _call_grounded(adapter,
+                              lambda selected: selected.explain_conflict(conflict.id, context.spans))
+    current = EvidenceConflict.objects.filter(pk=conflict.id).first()
+    fresh = (Incident.objects.get(pk=context.incident_id).revision == revision
+             and current is not None and current.state == 'OPEN'
+             and tuple(current.claim_ids) == claim_ids)
+    return _grounded_result(context, 'explanation', provider, fresh)
+
+
+def draft_verification(task_id, actor):
+    """An immutable selected task controls wording; no ranking or status changes."""
+    from healthmesh.models import Incident, VerificationTask
+    from .grounding import context_for_task
+
+    if (not actor or not actor.is_authenticated or not actor.is_active
+            or not actor.groups.filter(name='coordinator').exists()):
+        raise PermissionDenied('An active coordinator is required.')
+    task = VerificationTask.objects.select_related('incident').get(pk=task_id, incident__synthetic=True)
+    context = context_for_task(task)
+    revision = task.incident.revision
+    adapter = get_amd_adapter()
+    provider = _call_grounded(adapter,
+                              lambda selected: selected.draft_verification(task, context.spans))
+    fresh = (Incident.objects.get(pk=context.incident_id).revision == revision
+             and VerificationTask.objects.filter(pk=task_id).exists())
+    return _grounded_result(context, 'draft', provider, fresh)

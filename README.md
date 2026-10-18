@@ -133,19 +133,34 @@ incident revision. Transient 429/502/503 responses use at most two retries
 within a 10-second total deadline, respecting `Retry-After` on 429; permanent
 request/configuration errors are not retried.
 
-To run the genuine one-call Brook acceptance test from PowerShell after setting
-`AMD_API_KEY` locally in the environment, run:
+To run the genuine Brook extraction, conflict explanation, and selected-question
+draft acceptance tests from PowerShell after setting `AMD_API_KEY` locally in
+the environment, run:
 
 ```powershell
 cd backend
 ..\.venv\Scripts\python.exe -m pytest -q -m amd_live healthmesh/tests/test_amd_live.py
 ```
 
-The test checks a real provider receipt, span-backed `on_hand=80` and
+The extraction test checks a real provider receipt, span-backed `on_hand=80` and
 `reserved=25` candidate claims, unchanged verified facts, and no secret or
-prompt in persisted metadata. A skip when `AMD_API_KEY` is absent is **not**
-live acceptance. The offline contract suite uses a transport stub and can be
+prompt in persisted metadata. The two grounded tests make separate real AMD
+requests for the Brook 95/80 conflict and the selected Brook question. Each
+must return a successful receipt with two issued source-span citations; neither
+may change verified facts, task selection, or incident revision. A skip when
+`AMD_API_KEY` is absent is **not** live acceptance. The offline contract suite uses a transport stub and can be
 run with `..\.venv\Scripts\python.exe -m pytest -q
-healthmesh/tests/test_amd_contract.py`. Conflict explanation and verification
-wording are separate Task 11 operations and remain unavailable until wired and
-tested with genuine calls.
+healthmesh/tests/test_amd_contract.py healthmesh/tests/test_grounding.py`.
+
+Coordinators explicitly request `POST /api/v1/conflicts/{conflict_id}/explain`
+or `POST /api/v1/verification-tasks/{task_id}/draft` from the evidence and
+verification views. Reading evidence and selecting a question spend no AMD
+quota; selection returns a labeled deterministic draft and no receipt. A
+completed grounded call uses the same Token Factory transport, bounded retry
+and shared rate gate as extraction. Server-selected claim spans become A/B
+citations; each numeric mention must be followed by its matching span label.
+Generated text is exposed only after its field, facility, numeric claims, and
+citations pass deterministic checks. Invalid, unavailable, stale,
+or timed-out wording falls back to labeled deterministic text. The only
+persisted inference data is allowlisted receipt metadata, with `conflict-v1`
+or `question-v1` input schema and `grounding-v1` output schema.

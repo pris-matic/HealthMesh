@@ -107,6 +107,8 @@ class ValidatedClaims(Contract):
 class GroundedExplanation(Outcome):
     text: str | None = Field(default=None, max_length=4000)
     cited_span_ids: tuple[UUID, ...] = ()
+    receipt_id: UUID | None = None
+    raw_content: str | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode='after')
     def no_failed_wording(self):

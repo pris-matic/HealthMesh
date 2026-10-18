@@ -17,6 +17,16 @@ export interface ExtractionReceiptDto {
   claims: { id: string; field: string; value: number | string; status: 'OBSERVED_UNVERIFIED'; source_span_id: string }[];
   new_revision: number | null;
 }
+export interface GroundedWordingDto {
+  status: 'SUCCESS' | 'UNAVAILABLE' | 'INVALID_OUTPUT' | 'TIMEOUT';
+  source: 'AMD_GENERATED_UNVERIFIED_WORDING' | 'DETERMINISTIC_FALLBACK';
+  text: string;
+  cited_span_ids: string[];
+  receipt_id: string | null;
+  receipt: ExtractionReceiptDto['receipt'];
+  conflict_id?: string;
+  task_id?: string;
+}
 export interface SessionDto { user: { username: string; role: 'coordinator' | 'reviewer' } | null; csrf_token: string }
 export interface AMDHealthDto { status: 'UNAVAILABLE' | 'CONFIGURED'; reason: 'missing_configuration' | 'provider_transport_unverified' | 'token_factory_protocol' }
 export interface EvidenceClaimDto {
