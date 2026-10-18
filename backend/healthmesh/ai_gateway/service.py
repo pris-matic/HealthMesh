@@ -120,6 +120,8 @@ def extract_source(source_id, actor) -> ExtractionResult:
                         basis='AMD extracted observation; human verification required')
                     claim_rows.append({'id': str(saved.id), 'field': saved.field, 'value': saved.value,
                                        'status': saved.status, 'source_span_id': str(saved.span_id)})
+                from healthmesh.evidence.conflicts import detect_conflicts
+                detect_conflicts(source.incident_id)
     source.incident.refresh_from_db()
     return ExtractionResult(status=status, receipt=metadata, receipt_id=receipt.id,
                             claims=tuple(claim_rows), accepted_count=len(claim_rows),

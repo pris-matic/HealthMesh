@@ -26,3 +26,9 @@ small, .muted { color: #52675e; }
 summary { cursor: pointer; font-weight: 600; }
 .error, [role=alert] { color: #9b2727; }
 @media (max-width: 700px) { .branches { grid-template-columns: 1fr; gap: 0; } main { padding: 24px 16px; } .panel { padding: 20px; } }
+.evidence-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 1rem; }
+.evidence-claim { border: 1px solid var(--border, #d9e1e7); border-radius: .75rem; padding: 1rem; overflow-wrap: anywhere; }
+.evidence-claim blockquote { margin: .7rem 0; padding: .6rem; border-left: 3px solid #64748b; background: #f4f7fa; white-space: pre-wrap; }
+.evidence-claim p { margin: .45rem 0; }
+.evidence-claim .badge { display: inline-block; margin-right: .4rem; }
+.evidence-claim .conflict { color: #9a3412; font-weight: 700; }

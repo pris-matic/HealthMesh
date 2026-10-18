@@ -4,7 +4,7 @@ import { extractSource, uploadSource } from '../api';
 import type { ExtractionReceiptDto, ScenarioDto, SourceDto } from '../types';
 import { ExtractionReceipt } from './ExtractionReceipt';
 
-export function SourceUpload({ scenario }: { scenario: ScenarioDto }) {
+export function SourceUpload({ scenario, onEvidenceChanged }: { scenario: ScenarioDto; onEvidenceChanged?: () => void }) {
   const [facility, setFacility] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<SourceDto | null>(null);
@@ -15,14 +15,14 @@ export function SourceUpload({ scenario }: { scenario: ScenarioDto }) {
     event.preventDefault();
     if (!file || !facility) return;
     setBusy(true); setError(''); setSource(null); setExtraction(null);
-    try { setSource(await uploadSource(scenario.id, facility, file)); }
+    try { setSource(await uploadSource(scenario.id, facility, file)); onEvidenceChanged?.(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Source import failed.'); }
     finally { setBusy(false); }
   }
   async function extract() {
     if (!source) return;
     setBusy(true); setError(''); setExtraction(null);
-    try { setExtraction(await extractSource(source.id)); }
+    try { setExtraction(await extractSource(source.id)); onEvidenceChanged?.(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Extraction failed.'); }
     finally { setBusy(false); }
   }

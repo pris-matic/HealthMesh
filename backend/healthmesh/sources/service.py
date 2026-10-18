@@ -54,5 +54,8 @@ def ingest_source(incident_id, facility_id, filename, content, actor) -> SourceD
                     InventoryClaim.objects.create(incident=incident, subject_id=batches[index].id,
                         source=source, span=span, field=field, value=row[field], observed_at=row['observed_at'],
                         status='OBSERVED_UNVERIFIED', basis='Unsigned synthetic CSV observation; human verification required')
+        if parsed.kind == 'CSV':
+            from healthmesh.evidence.conflicts import detect_conflicts
+            detect_conflicts(incident.id)
     source.duplicate = False
     return source

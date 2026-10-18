@@ -1,5 +1,6 @@
 """Seed a synthetic incident from signed facts, preserving raw text as evidence only."""
 import json
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from django.core.exceptions import ValidationError
@@ -9,6 +10,48 @@ from healthmesh.models import CanonicalFact, Facility, Incident, InventoryClaim,
 from healthmesh.db_models.core import incident_mutation
 from healthmesh.sources.spans import line_spans
 from .fixture import ScenarioSeed
+
+
+def _signed_field_span(source, subject, field, value):
+    """Cite the exact field/value inside this subject's signed JSON object."""
+    text = source.decoded_text
+    identity_field = 'batch_id' if isinstance(subject, StockBatch) else 'id'
+    identity = f'{json.dumps(identity_field)}: {json.dumps(str(subject.fixture_id))}'
+    if text.count(identity) != 1:
+        raise ValidationError('Signed source has no unique typed subject anchor.')
+    identity_start = text.index(identity)
+    object_starts = []
+    quoted = escaped = False
+    for index, char in enumerate(text[:identity_start]):
+        if escaped:
+            escaped = False
+        elif char == '\\' and quoted:
+            escaped = True
+        elif char == '"':
+            quoted = not quoted
+        elif not quoted and char == '{':
+            object_starts.append(index)
+        elif not quoted and char == '}':
+            object_starts.pop()
+    if not object_starts:
+        raise ValidationError('Signed source subject object is malformed.')
+    start = object_starts[-1]
+    subject_object, length = json.JSONDecoder().raw_decode(text[start:])
+    if subject_object.get(identity_field) != str(subject.fixture_id):
+        raise ValidationError('Signed source subject identity does not match the claim.')
+    source_field = 'status' if field == 'route_status' else field
+    source_value = subject_object.get(source_field)
+    same_value = (datetime.fromisoformat(source_value) == datetime.fromisoformat(value)
+                  if field == 'need_by' else source_value == value)
+    if not same_value:
+        raise ValidationError('Signed source value does not match the claim.')
+    anchor = f'{json.dumps(source_field)}: {json.dumps(source_value, sort_keys=True)}'
+    subject_text = text[start:start + length]
+    if subject_text.count(anchor) != 1:
+        raise ValidationError('Signed source has no unique field/value anchor for the claim.')
+    field_start = start + subject_text.index(anchor)
+    return SourceSpan.objects.create(incident=source.incident, source=source,
+                                     start=field_start, end=field_start + len(anchor))
 
 
 @transaction.atomic
@@ -61,8 +104,10 @@ def _seed_records(seed, incident, facility_ids):
     def seed_fact(subject, field, value, source_id, observed_at, status='HUMAN_VERIFIED'):
         source = sources[source_id]
         basis = 'Signed synthetic fixture; not an inferred text claim'
+        span = _signed_field_span(source, subject, field, value)
         claim = InventoryClaim.objects.create(incident=incident, subject_id=subject.id, field=field, value=value,
-                                               source=source, observed_at=observed_at, status='HUMAN_VERIFIED', basis=basis)
+                                               source=source, span=span, observed_at=observed_at,
+                                               status='HUMAN_VERIFIED', basis=basis)
         CanonicalFact.objects.create(incident=incident, subject_id=subject.id, field=field, value=value,
                                       source=source, claim=claim, observed_at=observed_at, status=status, basis=basis)
 

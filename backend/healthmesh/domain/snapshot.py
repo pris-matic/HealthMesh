@@ -6,7 +6,7 @@ from uuid import UUID
 from django.db import transaction
 from django.core.exceptions import ValidationError
 
-from healthmesh.models import CanonicalFact, Facility, Incident, InventoryClaim, RouteObservation, SourceDocument, StockBatch, SupplyRequest
+from healthmesh.models import CanonicalFact, EvidenceConflict, Facility, Incident, InventoryClaim, RouteObservation, SourceDocument, StockBatch, SupplyRequest
 from healthmesh.db_models.core import mutation_in_progress
 from .types import BatchSnapshot, ClaimSnapshot, FacilitySnapshot, IncidentSnapshot, RequestSnapshot, RouteSnapshot, SnapshotPolicy
 
@@ -18,13 +18,16 @@ def build_snapshot(incident_id: UUID) -> IncidentSnapshot:
         raise ValidationError('Build a snapshot after the logical evidence change has committed its revision.')
     policy = SnapshotPolicy.model_validate_json(json.dumps(incident.policy))
     facts = {(fact.subject_id, fact.field): fact for fact in CanonicalFact.objects.filter(incident=incident)}
+    conflicted = set(EvidenceConflict.objects.filter(incident=incident, state='OPEN').values_list('subject_id', 'field'))
 
     def project(subject_id, field):
         fact = facts.get((subject_id, field))
         if fact is None:
             return {}
         status = fact.status
-        if (status in {'HUMAN_VERIFIED', 'DERIVED_FROM_VERIFIED'} and fact.observed_at
+        if (subject_id, field) in conflicted:
+            status = 'CONFLICTED'
+        elif (status in {'HUMAN_VERIFIED', 'DERIVED_FROM_VERIFIED'} and fact.observed_at
                 and incident.simulated_now - fact.observed_at > timedelta(hours=policy.freshness_hours)):
             status = 'STALE'
         return dict(value=fact.value, status=status, observed_at=fact.observed_at,

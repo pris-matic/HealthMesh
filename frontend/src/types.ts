@@ -19,3 +19,20 @@ export interface ExtractionReceiptDto {
 }
 export interface SessionDto { user: { username: string; role: 'coordinator' | 'reviewer' } | null; csrf_token: string }
 export interface AMDHealthDto { status: 'UNAVAILABLE' | 'CONFIGURED'; reason: 'missing_configuration' | 'provider_transport_unverified' | 'token_factory_protocol' }
+export interface EvidenceClaimDto {
+  id: string; subject_id: string; field: string; value: unknown;
+  status: 'OBSERVED_UNVERIFIED' | 'CONFLICTED' | 'HUMAN_VERIFIED' | 'DERIVED_FROM_VERIFIED' | 'UNKNOWN' | 'STALE';
+  field_status: 'OBSERVED_UNVERIFIED' | 'CONFLICTED' | 'HUMAN_VERIFIED' | 'DERIVED_FROM_VERIFIED' | 'UNKNOWN' | 'STALE';
+  freshness: 'FRESH' | 'STALE'; observed_at: string; receipt_id: string | null;
+  source: { id: string; kind: 'SIGNED_FIXTURE' | 'RAW_TEXT' | 'CSV' | 'MANUAL'; observed_at: string; verified: boolean };
+  span: { id: string; start: number; end: number; quote: string } | null;
+}
+export interface EvidenceConflictDto {
+  id: string; field_key: string; subject_id: string; field: string; claim_ids: string[];
+  conflict_type: 'VALUE_DISAGREEMENT'; state: 'OPEN' | 'RESOLVED';
+  resolution_id: string | null; created_at: string;
+}
+export interface EvidenceDto {
+  incident_id: string; revision: number; as_of: string;
+  claims: EvidenceClaimDto[]; conflicts: EvidenceConflictDto[];
+}
