@@ -1,15 +1,18 @@
 """Offline contract checks. No test in this file calls AMD."""
 import json
-from datetime import datetime, timezone
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from threading import Thread
+from threading import Barrier, Thread
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
 import pytest
 from django.contrib.auth.models import Group
 from django.test import Client
+from django.utils import timezone as django_timezone
 
 from healthmesh.ai_gateway.types import ExtractionResult, ReceiptMetadata
 from healthmesh.models import (AIExtractionRun, AIInferenceReceipt, CanonicalFact,
@@ -317,3 +320,125 @@ def test_invalid_secret_header_or_model_config_never_starts_transport(case, sett
     settings.AMD_API_BASE_URL = 'https://developer.amd.com.cn/radeon/api/v1'
     settings.AMD_MODEL_ID = model
     assert get_amd_adapter().health()['status'] == 'UNAVAILABLE'
+
+
+def test_response_completed_after_total_deadline_is_timeout_without_receipt(case, monkeypatch, settings):
+    from healthmesh.ai_gateway import provider_event
+    from healthmesh.ai_gateway.service import get_amd_adapter
+
+    settings.AMD_API_KEY = 'fictional-test-key'
+    settings.AMD_API_BASE_URL = 'https://developer.amd.com.cn/radeon/api/v1'
+    settings.AMD_MODEL_ID = 'DeepSeek-V4-Flash'
+
+    class SlowResponse(FakeResponse):
+        def read(self, limit):
+            time.sleep(0.03)
+            return super().read(limit)
+
+    payload = json.dumps({'choices': [{'message': {'content': completion_content(
+        SourceSpan.objects.filter(source=case.source))}}]}).encode()
+    monkeypatch.setattr(provider_event, '_open_request', lambda request, timeout: SlowResponse(payload))
+    monkeypatch.setattr(provider_event.TokenFactoryAMDAdapter, 'timeout_seconds', 0.01)
+    result = get_amd_adapter().extract_claims(case.source.decoded_text,
+        tuple(SourceSpan.objects.filter(source=case.source)), 'v1')
+    assert result.status == 'TIMEOUT'
+    assert result.receipt is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_shared_gate_allows_one_worker_and_stale_owner_cannot_release(monkeypatch):
+    from healthmesh.ai_gateway import rate_gate
+    from healthmesh.models import AMDCallGate
+
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    AMDCallGate.objects.get_or_create(pk='token_factory', defaults={
+        'lease_until': epoch, 'next_allowed_at': epoch})
+    barrier = Barrier(2)
+
+    def attempt():
+        barrier.wait(timeout=2)
+        return rate_gate.acquire_call(time.monotonic() + 0.5)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: attempt(), range(2)))
+    winners = [owner for owner in results if owner is not None]
+    assert len(winners) == 1
+    first = winners[0]
+    gate = AMDCallGate.objects.get(pk='token_factory')
+    assert gate.owner_token == first
+
+    # Simulate a crashed worker: the lease expires and a new worker owns it.
+    past = django_timezone.now() - timedelta(seconds=1)
+    AMDCallGate.objects.filter(pk='token_factory').update(lease_until=past, next_allowed_at=past)
+    second = rate_gate.acquire_call(time.monotonic() + 0.5)
+    assert second is not None and second != first
+    rate_gate.release_call(first)
+    assert AMDCallGate.objects.get(pk='token_factory').owner_token == second
+    rate_gate.release_call(second)
+    gate.refresh_from_db()
+    assert gate.owner_token is None
+    assert gate.next_allowed_at > django_timezone.now() + timedelta(seconds=1)
+    assert rate_gate.acquire_call(time.monotonic() + 0.02) is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_gate_waits_through_short_cooldown_within_call_deadline(monkeypatch):
+    from healthmesh.ai_gateway import rate_gate
+    from healthmesh.models import AMDCallGate
+
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    AMDCallGate.objects.get_or_create(pk='token_factory', defaults={
+        'lease_until': epoch, 'next_allowed_at': epoch})
+    monkeypatch.setattr(rate_gate, 'COOLDOWN_SECONDS', 0.04)
+    first = rate_gate.acquire_call(time.monotonic() + 0.5)
+    assert first is not None
+    rate_gate.release_call(first)
+    start = time.monotonic()
+    second = rate_gate.acquire_call(start + 0.5)
+    assert second is not None
+    assert time.monotonic() - start >= 0.025
+    rate_gate.release_call(second)
+
+
+def test_busy_gate_rejects_extract_without_provider_or_state_change(case, monkeypatch):
+    from healthmesh.ai_gateway import rate_gate, service
+
+    owner = rate_gate.acquire_call(time.monotonic() + 0.5)
+    assert owner is not None
+
+    class ForbiddenAMD:
+        def extract_claims(self, *_):
+            pytest.fail('busy gate started a second provider call')
+
+    monkeypatch.setattr(service, 'get_amd_adapter', lambda: ForbiddenAMD())
+    before = (case.incident.revision, InventoryClaim.objects.count(), AIInferenceReceipt.objects.count())
+    try:
+        response = call_extract(case)
+        assert response.status_code == 200
+        assert response.json()['status'] == 'UNAVAILABLE'
+        case.incident.refresh_from_db()
+        assert before == (case.incident.revision, InventoryClaim.objects.count(),
+                          AIInferenceReceipt.objects.count())
+    finally:
+        rate_gate.release_call(owner)
+
+
+def test_429_retry_after_sets_shared_next_allowed_floor(case, monkeypatch, settings):
+    from healthmesh.ai_gateway import provider_event
+    from healthmesh.models import AMDCallGate
+
+    settings.AMD_API_KEY = 'fictional-test-key'
+    settings.AMD_API_BASE_URL = 'https://developer.amd.com.cn/radeon/api/v1'
+    settings.AMD_MODEL_ID = 'DeepSeek-V4-Flash'
+    monkeypatch.setattr(provider_event.TokenFactoryAMDAdapter, 'max_retries', 0)
+
+    def rate_limited(request, timeout):
+        raise HTTPError(request.full_url, 429, 'rate limited', {'Retry-After': '4'}, BytesIO())
+
+    monkeypatch.setattr(provider_event, '_open_request', rate_limited)
+    response = call_extract(case)
+    assert response.status_code == 200
+    assert response.json()['status'] == 'UNAVAILABLE'
+    assert not AIInferenceReceipt.objects.exists()
+    gate = AMDCallGate.objects.get(pk='token_factory')
+    assert gate.next_allowed_at >= django_timezone.now() + timedelta(seconds=3)

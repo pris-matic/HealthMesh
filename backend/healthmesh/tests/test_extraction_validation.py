@@ -200,6 +200,26 @@ def test_reserved_unit_scopes_only_the_exact_counted_clause(text, value, accepte
         assert result.quarantined[0].reason == 'VALUE_NOT_SUPPORTED'
 
 
+def test_counted_quantity_cannot_be_relabelled_as_reserved_within_same_span():
+    span = issued('Medication X: counted 80 boxes, 25 reserved for clinics.')
+    claims = [candidate(span), candidate(span, field='reserved', value=80),
+              candidate(span, field='reserved', value=25), candidate(span, value=25)]
+    result = validation.validate_extraction({'claims': claims}, [span], 'box')
+    assert [(claim.field, claim.value) for claim in result.accepted] == [
+        ('on_hand', 80), ('reserved', 25)]
+    assert [(claim.index, claim.reason) for claim in result.quarantined] == [
+        (1, 'VALUE_NOT_SUPPORTED'), (3, 'VALUE_NOT_SUPPORTED')]
+
+
+def test_separate_explicit_reserved_amount_remains_supported():
+    span = issued('counted 80 boxes; 12 boxes reserved for clinics.')
+    result = validation.validate_extraction({'claims': [candidate(span, field='reserved', value=12),
+                                                       candidate(span, field='on_hand', value=12)]},
+                                            [span], 'box')
+    assert [(claim.field, claim.value) for claim in result.accepted] == [('reserved', 12)]
+    assert [(claim.index, claim.reason) for claim in result.quarantined] == [(1, 'VALUE_NOT_SUPPORTED')]
+
+
 @pytest.mark.django_db
 def test_validation_never_changes_snapshot_or_persists_rejected_claims(django_user_model):
     from healthmesh.domain.snapshot import build_snapshot

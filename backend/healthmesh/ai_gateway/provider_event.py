@@ -17,6 +17,7 @@ from django.conf import settings
 from healthmesh.sources.sanitizer import sanitize
 from healthmesh.sources.spans import valid_span_offsets
 from .adapter import AMDInferenceAdapter
+from .rate_gate import current_call_deadline, defer_after_429
 from .types import ExtractionResult, GroundedExplanation, ReceiptMetadata, SuggestedMessage
 
 TOKEN_FACTORY_BASE_URL = 'https://developer.amd.com.cn/radeon/api/v1'
@@ -114,7 +115,7 @@ class TokenFactoryAMDAdapter(AMDInferenceAdapter):
                               'Content-Type': 'application/json',
                           }, method='POST')
         start = time.monotonic()
-        deadline = start + self.timeout_seconds
+        deadline = min(start + self.timeout_seconds, current_call_deadline() or float('inf'))
         for attempt in range(self.max_retries + 1):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -123,10 +124,14 @@ class TokenFactoryAMDAdapter(AMDInferenceAdapter):
                 with _open_request(request, timeout=remaining) as response:
                     response_bytes = response.read(MAX_RESPONSE_BYTES + 1)
                     request_id = _request_id(response.headers)
+                if time.monotonic() >= deadline:
+                    return ExtractionResult(status='TIMEOUT')
             except HTTPError as exc:
+                retry_floor = _retry_after(exc.headers.get('Retry-After') if exc.headers else None)
+                if exc.code == 429:
+                    defer_after_429(retry_floor)
                 if exc.code not in TRANSIENT_HTTP or attempt >= self.max_retries:
                     return ExtractionResult(status='UNAVAILABLE')
-                retry_floor = _retry_after(exc.headers.get('Retry-After') if exc.headers else None)
                 delay = max(retry_floor, min(2.0, 0.25 * 2 ** attempt) + random.uniform(0, 0.25))
                 if delay >= deadline - time.monotonic():
                     return ExtractionResult(status='UNAVAILABLE')
@@ -149,6 +154,8 @@ class TokenFactoryAMDAdapter(AMDInferenceAdapter):
             except (ValueError, KeyError, IndexError, TypeError, UnicodeError):
                 content = None
                 status = 'INVALID_OUTPUT'
+            if time.monotonic() >= deadline:
+                return ExtractionResult(status='TIMEOUT')
             receipt = ReceiptMetadata(model_id=settings.AMD_MODEL_ID, timestamp=timestamp,
                 latency_ms=elapsed_ms, status=status, request_id=request_id,
                 input_schema_version=schema_version, output_schema_version='v1')

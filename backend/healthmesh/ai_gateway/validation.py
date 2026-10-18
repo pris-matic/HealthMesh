@@ -34,11 +34,20 @@ def _unique_object(pairs):
     return result
 
 
-def _supported_quantity(value, unit, quote):
+def _supported_quantity(value, unit, quote, field):
     units = '(?:box|boxes)' if unit == 'box' else re.escape(unit)
     # Prevent matching a suffix of a negative, decimal, grouped number or date.
     pattern = rf'(?<![\w.,+\-])([0-9]+(?:\.[0-9]+)?)\s+{units}(?!\w)'
+    counted_offsets = {match.span(1) for match in re.finditer(
+        r'(?<!\w)counted\s+([0-9]+(?:\.[0-9]+)?)\s+box(?:es)?\b', quote,
+        flags=re.IGNORECASE)} if unit == 'box' else set()
+    reserved_offsets = {match.span(1) for match in re.finditer(
+        r'(?<![\w.,+\-])([0-9]+(?:\.[0-9]+)?)\s+box(?:es)?\s+reserved\b',
+        quote, flags=re.IGNORECASE)} if unit == 'box' else set()
     for match in re.finditer(pattern, quote):
+        if (field == 'reserved' and match.span(1) in counted_offsets
+                or field == 'on_hand' and match.span(1) in reserved_offsets):
+            continue
         prefix = quote[:match.start()]
         previous = prefix[-1:]
         nearest = prefix.rstrip()[-1:]
@@ -122,7 +131,7 @@ def validate_extraction(raw: object, allowed_spans: Sequence['SourceSpan'], base
             if claim.unit != base_unit:
                 reject('UNIT_MISMATCH')
                 continue
-            supported = (_supported_quantity(claim.value, base_unit, quote)
+            supported = (_supported_quantity(claim.value, base_unit, quote, claim.field)
                          or claim.field == 'reserved' and _reserved_counted_clause(claim.value, base_unit, quote))
         else:
             supported = claim.unit is None and re.search(rf'(?<!\w){re.escape(claim.value)}(?!\w)', quote) is not None

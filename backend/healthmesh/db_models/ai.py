@@ -48,3 +48,11 @@ class AIExtractionRun(Record):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Extraction runs are append-only.')
+
+
+class AMDCallGate(models.Model):
+    """One shared Token Factory call lease; contains no request or credential data."""
+    scope = models.CharField(max_length=40, primary_key=True)
+    owner_token = models.UUIDField(null=True, blank=True)
+    lease_until = models.DateTimeField()
+    next_allowed_at = models.DateTimeField()

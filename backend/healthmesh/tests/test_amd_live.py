@@ -45,7 +45,8 @@ def test_event_endpoint_extracts_brook_note(django_user_model, settings):
     run = AIExtractionRun.objects.get(receipt=receipt)
     assert run.source_id == source.id
     claims = list(InventoryClaim.objects.filter(extraction_run=run))
-    assert {(claim.field, claim.value) for claim in claims} >= {('on_hand', 80), ('reserved', 25)}
+    observed = {(claim.field, claim.value) for claim in claims if claim.field in {'on_hand', 'reserved'}}
+    assert observed == {('on_hand', 80), ('reserved', 25)}
     assert all(claim.status == 'OBSERVED_UNVERIFIED' and claim.source_id == source.id
                and source.decoded_text[claim.span.start:claim.span.end] == claim.span.text for claim in claims)
     assert list(CanonicalFact.objects.filter(incident=incident).values()) == signed_facts

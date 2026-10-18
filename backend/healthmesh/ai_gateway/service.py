@@ -9,6 +9,7 @@ from healthmesh.db_models.core import incident_mutation
 from healthmesh.sources.sanitizer import sanitize
 from healthmesh.sources.spans import valid_span_offsets
 from .adapter import AMDInferenceAdapter, UnavailableAMDAdapter
+from .rate_gate import admitted_call
 from .types import ExtractionResult, ReceiptMetadata
 from .validation import validate_extraction
 
@@ -35,10 +36,16 @@ def extract_claims(text: str, allowed_spans: Sequence, schema_version: str) -> E
         if (not valid_span_offsets(span, sanitized)
                 or getattr(span, 'text', None) != sanitized[span.start:span.end]):
             return ExtractionResult(status='INVALID_OUTPUT')
-    try:
-        return get_amd_adapter().extract_claims(sanitized, allowed_spans, schema_version)
-    except TimeoutError:
-        return ExtractionResult(status='TIMEOUT')
+    adapter = get_amd_adapter()
+    if isinstance(adapter, UnavailableAMDAdapter):
+        return adapter.extract_claims(sanitized, allowed_spans, schema_version)
+    with admitted_call() as admitted:
+        if not admitted:
+            return ExtractionResult(status='UNAVAILABLE')
+        try:
+            return adapter.extract_claims(sanitized, allowed_spans, schema_version)
+        except TimeoutError:
+            return ExtractionResult(status='TIMEOUT')
 
 
 def record_receipt(metadata: ReceiptMetadata):
