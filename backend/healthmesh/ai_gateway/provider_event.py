@@ -36,6 +36,51 @@ def _open_request(request, timeout):
     return build_opener(_NoRedirect).open(request, timeout=timeout)
 
 
+def _set_remaining_socket_timeout(response, remaining):
+    """Keep each urllib read inside the absolute call deadline.
+
+    urllib exposes a per-inactivity timeout. Its HTTP response wraps the socket
+    in one or more file objects, so lower that timeout before each chunk.
+    """
+    current = response
+    for _ in range(5):
+        sock = getattr(current, '_sock', None)
+        if sock is not None:
+            sock.settimeout(remaining)
+            return
+        wrapped = getattr(current, 'fp', None)
+        if wrapped is None:
+            wrapped = getattr(current, 'raw', None)
+        if wrapped is None or wrapped is current:
+            return
+        current = wrapped
+
+
+def _read_response_before_deadline(response, deadline):
+    """Read incrementally, closing a trickling response at the wall deadline."""
+    read_chunk = getattr(response, 'read1', None)
+    if read_chunk is None:
+        body = response.read(MAX_RESPONSE_BYTES + 1)
+        if time.monotonic() >= deadline:
+            raise TimeoutError('AMD response exceeded the call deadline.')
+        return body
+    chunks = []
+    total = 0
+    while total <= MAX_RESPONSE_BYTES:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError('AMD response exceeded the call deadline.')
+        _set_remaining_socket_timeout(response, remaining)
+        chunk = read_chunk(min(8192, MAX_RESPONSE_BYTES + 1 - total))
+        if time.monotonic() >= deadline:
+            raise TimeoutError('AMD response exceeded the call deadline.')
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b''.join(chunks)
+
+
 def configured_for_token_factory():
     return (isinstance(settings.AMD_API_KEY, str)
             and bool(settings.AMD_API_KEY) and all(33 <= ord(char) <= 126 for char in settings.AMD_API_KEY)
@@ -122,7 +167,7 @@ class TokenFactoryAMDAdapter(AMDInferenceAdapter):
                 return ExtractionResult(status='TIMEOUT')
             try:
                 with _open_request(request, timeout=remaining) as response:
-                    response_bytes = response.read(MAX_RESPONSE_BYTES + 1)
+                    response_bytes = _read_response_before_deadline(response, deadline)
                     request_id = _request_id(response.headers)
                 if time.monotonic() >= deadline:
                     return ExtractionResult(status='TIMEOUT')

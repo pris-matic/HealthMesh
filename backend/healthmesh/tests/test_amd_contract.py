@@ -345,6 +345,49 @@ def test_response_completed_after_total_deadline_is_timeout_without_receipt(case
     assert result.receipt is None
 
 
+def test_trickling_response_stops_before_shared_lease_can_expire(case, monkeypatch, settings):
+    from healthmesh.ai_gateway import provider_event
+    from healthmesh.ai_gateway.service import get_amd_adapter
+
+    class TricklingServer(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(200)
+            self.send_header('Content-Length', '64')
+            self.end_headers()
+            for _ in range(64):
+                try:
+                    self.wfile.write(b'x')
+                    self.wfile.flush()
+                except OSError:
+                    break
+                time.sleep(0.02)
+
+        def log_message(self, *_):
+            pass
+
+    server = HTTPServer(('127.0.0.1', 0), TricklingServer)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f'http://127.0.0.1:{server.server_port}/radeon/api/v1'
+        monkeypatch.setattr(provider_event, 'TOKEN_FACTORY_BASE_URL', base)
+        monkeypatch.setattr(provider_event.TokenFactoryAMDAdapter, 'timeout_seconds', 0.1)
+        settings.AMD_API_BASE_URL = base
+        settings.AMD_API_KEY = 'fictional-test-key'
+        settings.AMD_MODEL_ID = 'DeepSeek-V4-Flash'
+        start = time.monotonic()
+        result = get_amd_adapter().extract_claims(case.source.decoded_text,
+            tuple(SourceSpan.objects.filter(source=case.source)), 'v1')
+        elapsed = time.monotonic() - start
+        assert result.status == 'TIMEOUT'
+        assert result.receipt is None
+        assert elapsed < 0.6
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 @pytest.mark.django_db(transaction=True)
 def test_shared_gate_allows_one_worker_and_stale_owner_cannot_release(monkeypatch):
     from healthmesh.ai_gateway import rate_gate
