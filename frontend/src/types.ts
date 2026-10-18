@@ -36,3 +36,22 @@ export interface EvidenceDto {
   incident_id: string; revision: number; as_of: string;
   claims: EvidenceClaimDto[]; conflicts: EvidenceConflictDto[];
 }
+export interface VerificationEffectDto { answer: string; target_branch_status: 'PROVISIONAL' | 'READY_FOR_REVIEW' | 'INFEASIBLE'; branch_statuses: ('PROVISIONAL' | 'READY_FOR_REVIEW' | 'INFEASIBLE')[] }
+export interface RankedVerificationDto {
+  subject_id: string; facility_name: string; field: 'on_hand' | 'route_status';
+  reason_codes: string[]; evidence_ids: string[]; staff_minutes: number; response_delay_minutes: number;
+  sensitivity_count: number; sensitivity_per_staff_minute: number; net_value_estimate: number | null;
+  possible_effects: VerificationEffectDto[];
+}
+export interface SelectedVerificationTaskDto {
+  id: string; incident_id: string; subject_id: string; field: 'on_hand' | 'route_status';
+  selected_snapshot_revision: number; staff_minutes: number; response_delay_minutes: number;
+  selected_at: string; due_at: string; evidence_ids: string[];
+}
+export interface RankingDto {
+  snapshot_id: string; revision: number; tasks: RankedVerificationDto[];
+  valuation_mode: 'DETERMINISTIC_SENSITIVITY' | 'WEIGHTED_EXPECTED_LOSS';
+  net_value_estimate: number | null; must_verify_before_approval: boolean;
+  remaining_staff_minutes: number; remaining_questions: number;
+  selected_task?: SelectedVerificationTaskDto | null;
+}

@@ -145,11 +145,29 @@ class VerificationTask(PublicModel):
     response_delay_minutes: NonnegativeInt
 
 
+class PublicWorldWeight(PublicModel):
+    brook_on_hand: NonnegativeInt
+    cedar_route: Literal["CLOSED", "OPEN"]
+    weight: Annotated[float, Field(gt=0, le=1, allow_inf_nan=False)]
+
+
 class PublicPossibilities(PublicModel):
     synthetic: Literal[True]
-    brook_on_hand: tuple[NonnegativeInt, ...]
-    cedar_route: tuple[Literal["CLOSED", "OPEN"], ...]
-    weights: None
+    brook_on_hand: tuple[NonnegativeInt, ...] = Field(min_length=1, max_length=2)
+    cedar_route: tuple[Literal["CLOSED", "OPEN"], ...] = Field(min_length=1, max_length=2)
+    weights: tuple[PublicWorldWeight, ...] | None = None
+
+    @model_validator(mode="after")
+    def validate_weights(self):
+        if len(set(self.brook_on_hand)) != len(self.brook_on_hand) or len(set(self.cedar_route)) != len(self.cedar_route):
+            raise ValueError("Public possibilities must be distinct")
+        if self.weights is None:
+            return self
+        expected = {(brook, cedar) for brook in self.brook_on_hand for cedar in self.cedar_route}
+        actual = {(row.brook_on_hand, row.cedar_route) for row in self.weights}
+        if len(self.weights) != len(expected) or actual != expected or abs(sum(row.weight for row in self.weights) - 1) > 1e-9:
+            raise ValueError("Public weights must cover each possible world once and sum to one")
+        return self
 
 
 class LossPolicy(PublicModel):

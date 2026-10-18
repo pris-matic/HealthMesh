@@ -32,3 +32,5 @@ summary { cursor: pointer; font-weight: 600; }
 .evidence-claim p { margin: .45rem 0; }
 .evidence-claim .badge { display: inline-block; margin-right: .4rem; }
 .evidence-claim .conflict { color: #9a3412; font-weight: 700; }
+.verification-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1rem; }
+.verification-options .panel { margin-bottom: 0; }

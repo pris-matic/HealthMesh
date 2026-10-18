@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { amdHealth, createScenario, getEvidence, requestPlan, session } from './api';
-import type { EvidenceDto, PlanDto, ScenarioDto, SessionDto } from './types';
+import { amdHealth, createScenario, getEvidence, getVerificationOptions, requestPlan, selectVerification, session } from './api';
+import type { EvidenceDto, PlanDto, RankingDto, ScenarioDto, SessionDto } from './types';
 import { Login } from './features/Login';
 import { PlanPreview } from './features/PlanPreview';
 import { SourceUpload } from './features/SourceUpload';
 import { EvidenceWorkspace } from './features/EvidenceWorkspace';
+import { VerificationDesk } from './features/VerificationDesk';
 
 export default function App() {
   const [account, setAccount] = useState<SessionDto | null>(null);
@@ -14,6 +15,8 @@ export default function App() {
   const [showEvidence, setShowEvidence] = useState(false);
   const [evidenceVersion, setEvidenceVersion] = useState(0);
   const [evidenceError, setEvidenceError] = useState('');
+  const [ranking, setRanking] = useState<RankingDto | null>(null);
+  const [rankingError, setRankingError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [amdStatus, setAMDStatus] = useState<'checking' | 'UNAVAILABLE' | 'CONFIGURED'>('checking');
@@ -33,6 +36,22 @@ export default function App() {
       .catch(err => { if (active) setEvidenceError(err instanceof Error ? err.message : 'Could not load evidence.'); });
     return () => { active = false; };
   }, [showEvidence, incidentId, evidenceVersion]);
+  useEffect(() => {
+    if (!plan || !incidentId) return;
+    let active = true;
+    getVerificationOptions(incidentId).then(result => { if (active) { setRanking(result); setRankingError(''); } })
+      .catch(err => { if (active) setRankingError(err instanceof Error ? err.message : 'Could not load questions.'); });
+    return () => { active = false; };
+  }, [plan, incidentId, evidenceVersion]);
+  async function chooseQuestion(subjectId: string, field: 'on_hand' | 'route_status') {
+    if (!incidentId || !ranking) return;
+    setBusy(true); setRankingError('');
+    try {
+      await selectVerification(incidentId, subjectId, field, ranking.revision);
+      setRanking(await getVerificationOptions(incidentId));
+    } catch (err) { setRankingError(err instanceof Error ? err.message : 'Could not select question.'); }
+    finally { setBusy(false); }
+  }
   async function generate() {
     setBusy(true); setError(''); setPlan(null);
     try { const incident = scenario ?? await createScenario(); setScenario(incident); setPlan(await requestPlan(incident.id)); }
@@ -43,7 +62,7 @@ export default function App() {
     <header><div><p className="eyebrow">HealthMesh / Supply coordination</p><h1>Evidence before action.</h1><p>Compare conditional supply options for three fictional facilities.</p></div>
       {account?.user && <div><p>{account.user.username} · {account.user.role}</p><button className="secondary" disabled={busy} onClick={async () => {
         setBusy(true); setError('');
-        try { setAccount(await session('DELETE')); setScenario(null); setPlan(null); setEvidence(null); setShowEvidence(false); }
+        try { setAccount(await session('DELETE')); setScenario(null); setPlan(null); setEvidence(null); setRanking(null); setShowEvidence(false); }
         catch (err) { setError(err instanceof Error ? err.message : 'Sign-out failed.'); }
         finally { setBusy(false); }
       }}>Sign out</button></div>}
@@ -62,6 +81,9 @@ export default function App() {
         {showEvidence ? 'Hide evidence' : 'View evidence'}
       </button>{showEvidence && (evidenceError ? <p role="alert">{evidenceError}</p> : evidence ?
         <EvidenceWorkspace evidence={evidence} /> : <p role="status">Loading evidence…</p>)}</>}
-      {plan && <PlanPreview plan={plan} />}</>}
+      {plan && <><PlanPreview plan={plan} />
+        {rankingError && <p role="alert">{rankingError}</p>}
+        {ranking && <VerificationDesk ranking={ranking} onSelect={chooseQuestion}
+          canSelect={account.user.role === 'coordinator' && !busy && !ranking.selected_task} />}</>}</>}
   </main></>;
 }

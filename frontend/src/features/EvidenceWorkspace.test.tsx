@@ -52,6 +52,10 @@ test('loaded incident opens the read-only evidence workspace from the main scree
       status: 'PROVISIONAL', snapshot_id: 'incident:1', revision: 1, branches: [],
       mandatory_unverified_facts: [], evidence_ids: [], infeasible_reasons: [],
       requires_review: true, model_policy_version: 'DETERMINISTIC_PLANNER_V1' };
+    else if (url.endsWith('/verification-tasks')) payload = { snapshot_id: 'incident:1', revision: 1,
+      tasks: [], valuation_mode: 'DETERMINISTIC_SENSITIVITY', net_value_estimate: null,
+      must_verify_before_approval: true, remaining_staff_minutes: 10, remaining_questions: 1,
+      selected_task: null };
     else if (url.endsWith('/evidence')) payload = { incident_id: 'incident', revision: 2,
       as_of: '2026-10-17T12:00:00Z', claims: [], conflicts: [] };
     else throw new Error(`Unexpected URL ${url}`);

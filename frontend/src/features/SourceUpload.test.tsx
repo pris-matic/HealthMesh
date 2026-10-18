@@ -12,6 +12,10 @@ function server(failure = false, extraction = false) {
     if (url.endsWith('/session')) payload = { user: { username: 'demo', role: 'coordinator' }, csrf_token: 'token' };
     else if (url.endsWith('/scenarios')) payload = { id: 'incident', seed: 'storm-supply-01', revision: 1, synthetic: true, facilities: [{ id: 'brook', name: 'Brook' }] };
     else if (url.endsWith('/plan')) payload = { id: 'run', created_at: '2026-10-17T12:00:00Z', as_of: '2026-10-17T12:00:00Z', status: 'PROVISIONAL', snapshot_id: 'snapshot', revision: 1, branches: [], mandatory_unverified_facts: [], evidence_ids: [], infeasible_reasons: [], requires_review: true, model_policy_version: 'V1' };
+    else if (url.endsWith('/verification-tasks')) payload = { snapshot_id: 'snapshot', revision: 1,
+      tasks: [], valuation_mode: 'DETERMINISTIC_SENSITIVITY', net_value_estimate: null,
+      must_verify_before_approval: true, remaining_staff_minutes: 10, remaining_questions: 1,
+      selected_task: null };
     else if (url.endsWith('/amd/health')) payload = { status: 'CONFIGURED', reason: 'token_factory_protocol' };
     else if (url.endsWith('/sources')) {
       const form = options?.body as FormData;

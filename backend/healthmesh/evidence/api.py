@@ -1,12 +1,16 @@
 """Read-only, sanitized provenance view for synthetic incident evidence."""
 from datetime import timedelta
 import time
+from uuid import UUID
 
 from django.db import OperationalError, connection, transaction
 from django.http import JsonResponse
 
-from healthmesh.models import EvidenceConflict, Incident, InventoryClaim
-from healthmesh.workflow.auth import api, error
+from healthmesh.models import EvidenceConflict, Incident, InventoryClaim, VerificationTask
+from healthmesh.domain.snapshot import build_snapshot
+from healthmesh.planner.service import plan
+from healthmesh.workflow.auth import api, body, error
+from .ranking import rank_verifications
 
 
 @api(['GET'])
@@ -62,3 +66,75 @@ def _evidence_response(incident_id):
             'created_at': row.created_at.isoformat(),
         } for row in conflicts],
     })
+
+
+def _task_payload(task):
+    return {'id': str(task.id), 'incident_id': str(task.incident_id),
+            'subject_id': str(task.subject_id), 'field': task.field,
+            'selected_snapshot_revision': task.selected_snapshot_revision,
+            'staff_minutes': task.staff_minutes, 'response_delay_minutes': task.response_delay_minutes,
+            'selected_at': task.selected_at.isoformat(), 'due_at': task.due_at.isoformat(),
+            'evidence_ids': task.evidence_ids}
+
+
+def verification_tasks(request, incident_id):
+    if request.method == 'GET':
+        return list_verification_tasks(request, incident_id)
+    if request.method == 'POST':
+        return create_verification_task(request, incident_id)
+    return error('method_not_allowed', 'Method not allowed.', 405)
+
+
+@api(['GET'])
+def list_verification_tasks(request, incident_id):
+    incident = Incident.objects.filter(pk=incident_id, synthetic=True).first()
+    if incident is None:
+        return error('not_found', 'Incident not found.', 404)
+    snapshot = build_snapshot(incident_id)
+    selected = list(VerificationTask.objects.filter(incident_id=incident_id).order_by('created_at', 'id'))
+    budget = snapshot.policy.verification_budget.model_copy(update={
+        'questions': max(0, snapshot.policy.verification_budget.questions - len(selected)),
+        'staff_minutes': max(0, snapshot.policy.verification_budget.staff_minutes - sum(row.staff_minutes for row in selected))})
+    ranking = rank_verifications(snapshot, plan(snapshot), budget)
+    return JsonResponse({**ranking.model_dump(mode='json'),
+                         'selected_task': _task_payload(selected[-1]) if selected else None})
+
+
+@api(['POST'], roles=('coordinator',))
+@transaction.atomic
+def create_verification_task(request, incident_id):
+    data = body(request)
+    try:
+        subject_id = UUID(data['subject_id'])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return error('invalid_request', 'A valid subject_id is required.', 400)
+    field = data.get('field')
+    expected = data.get('expected_revision')
+    if field not in {'on_hand', 'route_status'} or type(expected) is not int or expected < 0:
+        return error('invalid_request', 'Field and expected_revision are required.', 400)
+    incident = Incident.objects.select_for_update().filter(pk=incident_id, synthetic=True).first()
+    if incident is None:
+        return error('not_found', 'Incident not found.', 404)
+    existing = list(VerificationTask.objects.filter(incident=incident).order_by('created_at', 'id'))
+    replay = next((row for row in existing if row.selected_snapshot_revision == expected
+                   and row.subject_id == subject_id and row.field == field), None)
+    if replay is not None:
+        return JsonResponse({'selected_task': _task_payload(replay), 'new_revision': None}, status=200)
+    if incident.revision != expected:
+        return error('stale_snapshot', 'Incident evidence changed; refresh verification options.', 409)
+    snapshot = build_snapshot(incident.id)
+    policy_budget = snapshot.policy.verification_budget
+    budget = policy_budget.model_copy(update={
+        'questions': max(0, policy_budget.questions - len(existing)),
+        'staff_minutes': max(0, policy_budget.staff_minutes - sum(row.staff_minutes for row in existing))})
+    ranked = rank_verifications(snapshot, plan(snapshot), budget)
+    selected = next((row for row in ranked.tasks if row.subject_id == subject_id and row.field == field), None)
+    if selected is None:
+        return error('NO_POSITIVE_OPTIONAL_QUERY', 'No budgeted decision-changing question is available.', 409)
+    task = VerificationTask.objects.create(
+        incident=incident, created_by=request.user, subject_id=subject_id, field=field,
+        selected_snapshot_revision=snapshot.revision, selected_at=snapshot.as_of,
+        due_at=snapshot.as_of + timedelta(minutes=selected.response_delay_minutes),
+        staff_minutes=selected.staff_minutes, response_delay_minutes=selected.response_delay_minutes,
+        evidence_ids=[str(value) for value in selected.evidence_ids])
+    return JsonResponse({'selected_task': _task_payload(task), 'new_revision': None}, status=201)
