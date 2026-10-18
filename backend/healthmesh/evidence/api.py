@@ -101,7 +101,6 @@ def list_verification_tasks(request, incident_id):
 
 
 @api(['POST'], roles=('coordinator',))
-@transaction.atomic
 def create_verification_task(request, incident_id):
     data = body(request)
     try:
@@ -112,6 +111,22 @@ def create_verification_task(request, incident_id):
     expected = data.get('expected_revision')
     if field not in {'on_hand', 'route_status'} or type(expected) is not int or expected < 0:
         return error('invalid_request', 'Field and expected_revision are required.', 400)
+    # SQLite cannot enforce select_for_update. A competing selector can win
+    # after this request read the budget, so retry in a new transaction and
+    # recompute the budget rather than returning an unhandled database lock.
+    for attempt in range(4):
+        try:
+            return _create_verification_task_once(request, incident_id, subject_id, field, expected)
+        except OperationalError as exc:
+            if connection.vendor != 'sqlite' or 'locked' not in str(exc).lower():
+                raise
+            if attempt == 3:
+                return error('temporarily_unavailable', 'Verification is busy. Retry selection.', 503)
+            time.sleep(.05 * (attempt + 1))
+
+
+@transaction.atomic
+def _create_verification_task_once(request, incident_id, subject_id, field, expected):
     incident = Incident.objects.select_for_update().filter(pk=incident_id, synthetic=True).first()
     if incident is None:
         return error('not_found', 'Incident not found.', 404)

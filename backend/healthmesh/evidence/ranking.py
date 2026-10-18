@@ -72,13 +72,36 @@ def _loss(snapshot, result, staff_minutes, delay_minutes):
         delay_minutes / 60 * policy.response_delay_hours)
 
 
-def _weighted_value(snapshot, baseline, field, answers, delay_minutes, staff_minutes, possibilities):
+def _known_public_answer(snapshot, field):
+    policy_task = next((task for task in snapshot.policy.verification_tasks if task.field == field), None)
+    selected = _candidate(snapshot, policy_task) if policy_task else None
+    if selected is None:
+        return None
+    _, subject = selected
+    fact = subject.on_hand if field == 'on_hand' else subject.status
+    return fact.value if _verified(snapshot, fact) else None
+
+
+def _conditioned_worlds(snapshot, possibilities):
+    if possibilities.weights is None:
+        return None
+    brook = _known_public_answer(snapshot, 'on_hand')
+    cedar = _known_public_answer(snapshot, 'route_status')
+    remaining = tuple(world for world in possibilities.weights
+                      if (brook is None or world.brook_on_hand == brook)
+                      and (cedar is None or world.cedar_route == cedar))
+    total = sum(world.weight for world in remaining)
+    # A verified value outside the public support invalidates this prior.
+    return tuple((world, world.weight / total) for world in remaining) if total else None
+
+
+def _weighted_value(snapshot, baseline, field, delay_minutes, staff_minutes, worlds):
     base_loss = _loss(snapshot, baseline, 0, 0)
     weighted_loss = 0.0
-    for world in possibilities.weights:
+    for world, probability in worlds:
         answer = world.brook_on_hand if field == 'on_hand' else world.cedar_route
         hypothetical = _hypothetical(snapshot, {field: answer}, delay_minutes)
-        weighted_loss += world.weight * _loss(hypothetical, plan(hypothetical), staff_minutes, delay_minutes)
+        weighted_loss += probability * _loss(hypothetical, plan(hypothetical), staff_minutes, delay_minutes)
     return base_loss - weighted_loss
 
 
@@ -87,7 +110,8 @@ def rank_verifications(snapshot: IncidentSnapshot, plan_result: PlanResult,
     if plan_result.snapshot_id != snapshot.snapshot_id or plan_result.revision != snapshot.revision:
         raise ValueError('Plan and snapshot revisions must match.')
     possibilities = PublicPossibilities.model_validate(snapshot.policy.public_possibilities.model_dump())
-    weighted = possibilities.weights is not None
+    worlds = _conditioned_worlds(snapshot, possibilities)
+    weighted = worlds is not None
     mode = 'WEIGHTED_EXPECTED_LOSS' if weighted else 'DETERMINISTIC_SENSITIVITY'
     tasks = []
     request = snapshot.request
@@ -119,7 +143,9 @@ def rank_verifications(snapshot: IncidentSnapshot, plan_result: PlanResult,
                for world, result in answer_results):
             continue
         other_field = 'route_status' if policy_task.field == 'on_hand' else 'on_hand'
-        other_answers = possibilities.cedar_route if other_field == 'route_status' else possibilities.brook_on_hand
+        known_other = _known_public_answer(snapshot, other_field)
+        other_answers = ((known_other,) if known_other is not None else
+                         possibilities.cedar_route if other_field == 'route_status' else possibilities.brook_on_hand)
         sensitivity = 0
         for other in other_answers:
             states = []
@@ -130,8 +156,8 @@ def rank_verifications(snapshot: IncidentSnapshot, plan_result: PlanResult,
             sensitivity += sum(left != right for left, right in combinations(states, 2))
         if not sensitivity:
             continue
-        value = (_weighted_value(snapshot, plan_result, policy_task.field, answers,
-                                 policy_task.response_delay_minutes, policy_task.staff_minutes, possibilities)
+        value = (_weighted_value(snapshot, plan_result, policy_task.field,
+                                 policy_task.response_delay_minutes, policy_task.staff_minutes, worlds)
                  if weighted else None)
         if weighted and value <= 0:
             continue

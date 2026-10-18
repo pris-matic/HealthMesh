@@ -1,10 +1,12 @@
 """Public-world question ranking and revision-neutral task selection."""
 import json
 from datetime import timedelta
+from threading import Barrier, Lock, Thread
 from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth.models import Group
+from django.db import close_old_connections
 from django.test import Client
 
 from healthmesh.domain.snapshot import build_snapshot
@@ -224,3 +226,92 @@ def test_weighted_worlds_require_valid_explicit_weights(case):
     bad = weighted.model_copy(update={'policy': weighted.policy.model_copy(update={'public_possibilities': invalid})})
     with pytest.raises(ValueError):
         rank_verifications(bad, plan(bad), bad.policy.verification_budget)
+
+
+def test_verified_cedar_closed_conditions_public_worlds_before_valuing_brook(case):
+    """A rare Brook=90 in the remaining CLOSED worlds cannot justify the question."""
+    from healthmesh.evidence.ranking import rank_verifications
+    from healthmesh.scenarios.fixture import PublicWorldWeight
+
+    cedar = next(route for route in case.snapshot.routes if route.origin_name == 'Cedar')
+    closed = cedar.model_copy(update={'status': PlanningFact(
+        value='CLOSED', status='HUMAN_VERIFIED', observed_at=case.snapshot.as_of,
+        evidence_id=cedar.status.evidence_id, source_id=cedar.status.source_id)})
+    current = case.snapshot.model_copy(update={'routes': tuple(
+        closed if route.id == cedar.id else route for route in case.snapshot.routes)})
+    unweighted = rank_verifications(current, plan(current), current.policy.verification_budget)
+    assert [(task.facility_name, task.sensitivity_count) for task in unweighted.tasks] == [('Brook', 1)]
+
+    # P(Brook=90 | Cedar=CLOSED) = 0.00005 / 0.5 = 0.0001.
+    # Its expected avoided unmet loss is < 0.40, less than 0.60 staff
+    # plus 1/6 hour response cost, so the optional question has negative value.
+    worlds = (
+        PublicWorldWeight(brook_on_hand=70, cedar_route='CLOSED', weight=.49995),
+        PublicWorldWeight(brook_on_hand=90, cedar_route='CLOSED', weight=.00005),
+        PublicWorldWeight(brook_on_hand=70, cedar_route='OPEN', weight=.00005),
+        PublicWorldWeight(brook_on_hand=90, cedar_route='OPEN', weight=.49995),
+    )
+    possibilities = current.policy.public_possibilities.model_copy(update={'weights': worlds})
+    weighted = current.model_copy(update={'policy': current.policy.model_copy(update={
+        'public_possibilities': possibilities})})
+    ranked = rank_verifications(weighted, plan(weighted), weighted.policy.verification_budget)
+    assert ranked.valuation_mode == 'WEIGHTED_EXPECTED_LOSS'
+    assert ranked.tasks == ()
+    assert ranked.net_value_estimate is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_question_selection_rechecks_budget_after_sqlite_lock(case, monkeypatch):
+    """Two requests racing for one question return one selection and one 409."""
+    from healthmesh.evidence import api as evidence_api
+    from healthmesh.models import VerificationTask
+
+    brook = next(batch for batch in case.snapshot.batches if batch.facility_name == 'Brook')
+    cedar = next(route for route in case.snapshot.routes if route.origin_name == 'Cedar')
+    path = f'/api/v1/incidents/{case.incident.id}/verification-tasks'
+    barrier = Barrier(2)
+    count_lock = Lock()
+    calls = 0
+    original_rank = evidence_api.rank_verifications
+
+    def interleaved_rank(*args, **kwargs):
+        nonlocal calls
+        ranked = original_rank(*args, **kwargs)
+        with count_lock:
+            calls += 1
+            first_pass = calls <= 2
+        if first_pass:
+            barrier.wait(timeout=10)
+        return ranked
+
+    monkeypatch.setattr(evidence_api, 'rank_verifications', interleaved_rank)
+    clients = [Client(), Client()]
+    for client in clients:
+        client.force_login(case.coordinator)
+    results = []
+    failures = []
+
+    def select(client, subject_id, field):
+        close_old_connections()
+        try:
+            response = client.post(path, json.dumps({'subject_id': str(subject_id), 'field': field,
+                'expected_revision': case.snapshot.revision}), content_type='application/json')
+            results.append((response.status_code, response.json()))
+        except Exception as exc:
+            failures.append(exc)
+        finally:
+            close_old_connections()
+
+    threads = [Thread(target=select, args=(clients[0], brook.id, 'on_hand')),
+               Thread(target=select, args=(clients[1], cedar.id, 'route_status'))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    assert all(not thread.is_alive() for thread in threads)
+    assert not failures, failures
+    assert sorted(status for status, _ in results) == [201, 409]
+    assert next(payload['code'] for status, payload in results if status == 409) == 'NO_POSITIVE_OPTIONAL_QUERY'
+    assert VerificationTask.objects.filter(incident=case.incident).count() == 1
+    case.incident.refresh_from_db()
+    assert case.incident.revision == case.snapshot.revision
