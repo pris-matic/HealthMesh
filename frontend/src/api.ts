@@ -1,4 +1,4 @@
-import type { AMDHealthDto, EvidenceDto, ExtractionReceiptDto, GroundedWordingDto, PlanDto, RankingDto, ScenarioDto, SelectedVerificationTaskDto, SessionDto, SourceDto } from './types';
+import type { AMDHealthDto, EvidenceDto, ExtractionReceiptDto, GroundedWordingDto, PlanDto, RankingDto, ScenarioDto, SelectedVerificationTaskDto, SessionDto, SourceDto, VerificationAnswerInput, VerificationResponseDto } from './types';
 let csrfToken = '';
 async function request<T>(path: string, method = 'GET', data?: unknown): Promise<T> {
   const response = await fetch(`/api/v1${path}`, { method, credentials: 'same-origin',
@@ -27,6 +27,8 @@ export const explainConflict = (conflictId: string): Promise<GroundedWordingDto>
   request(`/conflicts/${conflictId}/explain`, 'POST');
 export const draftVerification = (taskId: string): Promise<GroundedWordingDto> =>
   request(`/verification-tasks/${taskId}/draft`, 'POST');
+export const respondToVerification = (taskId: string, answer: VerificationAnswerInput): Promise<VerificationResponseDto> =>
+  request(`/verification-tasks/${taskId}/respond`, 'POST', answer);
 export function uploadSource(incidentId: string, facilityId: string, file: File): Promise<SourceDto> {
   const data = new FormData();
   data.append('incident_id', incidentId);

@@ -56,7 +56,27 @@ export interface RankedVerificationDto {
 export interface SelectedVerificationTaskDto {
   id: string; incident_id: string; subject_id: string; field: 'on_hand' | 'route_status';
   selected_snapshot_revision: number; staff_minutes: number; response_delay_minutes: number;
-  selected_at: string; due_at: string; evidence_ids: string[];
+  selected_at: string; due_at: string; need_by: string | null; unit: string | null; evidence_ids: string[];
+}
+export interface VerificationAnswerInput {
+  status: 'CONFIRMED' | 'REJECTED' | 'UNRESOLVED';
+  value?: number | 'OPEN' | 'CLOSED'; unit?: string;
+  claimed_source: string; expected_revision: number;
+}
+export interface VerificationResponseDto {
+  incident_id: string; new_revision: number; simulated_at: string;
+  response_id: string; claim_id: string | null; conflict_id: string | null;
+  outcome: 'CONFIRMED' | 'REJECTED' | 'UNRESOLVED' | 'LATE';
+  new_plan_run_id?: string | null;
+}
+export interface HumanAttestationInput {
+  value: number | 'OPEN' | 'CLOSED'; unit?: string;
+  claimed_source: string; expected_revision: number;
+}
+export interface HumanAttestationDto {
+  incident_id: string; new_revision: number; simulated_at: string;
+  attestation_id: string; claim_id: string; conflict_id: string | null;
+  new_plan_run_id?: string | null;
 }
 export interface RankingDto {
   snapshot_id: string; revision: number; tasks: RankedVerificationDto[];

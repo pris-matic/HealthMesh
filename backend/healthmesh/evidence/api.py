@@ -6,7 +6,8 @@ from uuid import UUID
 from django.db import OperationalError, connection, transaction
 from django.http import JsonResponse
 
-from healthmesh.models import EvidenceConflict, Incident, InventoryClaim, VerificationTask
+from healthmesh.models import (CanonicalFact, EvidenceConflict, Incident, InventoryClaim,
+                               StockBatch, SupplyRequest, VerificationTask)
 from healthmesh.domain.snapshot import build_snapshot
 from healthmesh.planner.service import plan
 from healthmesh.workflow.auth import api, body, error
@@ -69,11 +70,20 @@ def _evidence_response(incident_id):
 
 
 def _task_payload(task):
+    batch = (StockBatch.objects.select_related('product').get(
+        pk=task.subject_id, incident_id=task.incident_id)
+        if task.field == 'on_hand' else None)
+    request = SupplyRequest.objects.filter(incident_id=task.incident_id).first()
+    deadline = (CanonicalFact.objects.filter(incident_id=task.incident_id,
+        subject_id=request.id, field='need_by').first() if request else None)
     return {'id': str(task.id), 'incident_id': str(task.incident_id),
             'subject_id': str(task.subject_id), 'field': task.field,
             'selected_snapshot_revision': task.selected_snapshot_revision,
             'staff_minutes': task.staff_minutes, 'response_delay_minutes': task.response_delay_minutes,
             'selected_at': task.selected_at.isoformat(), 'due_at': task.due_at.isoformat(),
+            'need_by': deadline.value if deadline and deadline.status in {
+                'HUMAN_VERIFIED', 'DERIVED_FROM_VERIFIED'} else None,
+            'unit': batch.product.base_unit if batch else None,
             'evidence_ids': task.evidence_ids}
 
 

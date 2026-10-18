@@ -11,7 +11,7 @@ from django.test import Client
 from healthmesh.ai_gateway.types import GroundedExplanation, ReceiptMetadata, SuggestedMessage
 from healthmesh.domain.snapshot import build_snapshot
 from healthmesh.models import (AIInferenceReceipt, CanonicalFact, EvidenceConflict,
-                               InventoryClaim, SourceDocument, SourceSpan, VerificationTask)
+                               Facility, InventoryClaim, SourceDocument, SourceSpan, VerificationTask)
 from healthmesh.scenarios.fixture import load_scenario
 from healthmesh.scenarios.service import create_incident
 
@@ -80,6 +80,47 @@ def test_validator_rejects_invented_span_unsupported_number_and_wrong_field(case
     assert validate_grounded_content(json.dumps({
         'text': 'Can you confirm Brook on-hand count from 95 boxes [A], 80 boxes [B], and 85 boxes?',
         'citations': ['A', 'B']}), context, 'draft') is None
+
+
+def test_grounded_wording_rejects_unrelated_nonnumeric_claims(case):
+    from healthmesh.ai_gateway.grounding import context_for_conflict, validate_grounded_content
+
+    context = context_for_conflict(case.conflict)
+    base = 'Brook on-hand observations differ: 95 boxes [A] and 80 boxes [B].'
+    for unsupported in (' Demand is high.', ' Storage is unusable.',
+                        ' Cedar route is open.', ' The reserve is protected.'):
+        assert validate_grounded_content(json.dumps({'text': base + unsupported,
+            'citations': ['A', 'B']}), context, 'explanation') is None
+    for unsupported in (' Is demand high?', ' Is storage usable?',
+                        ' Is the route open?', ' Is reserved stock available?'):
+        assert validate_grounded_content(json.dumps({'text':
+            'Can you confirm the Brook on-hand box count from 95 boxes [A] and 80 boxes [B]?' + unsupported,
+            'citations': ['A', 'B']}), context, 'draft') is None
+
+
+def test_selected_cedar_on_hand_is_valid_without_facility_name_ban(case):
+    from healthmesh.ai_gateway.grounding import context_for_conflict, validate_grounded_content
+    from healthmesh.evidence.conflicts import detect_conflicts
+
+    cedar = Facility.objects.get(incident=case.incident, name='Cedar')
+    batch = cedar.stockbatch_set.get()
+    signed = CanonicalFact.objects.get(incident=case.incident, subject_id=batch.id, field='on_hand').claim
+    text = 'SYNTHETIC Cedar counted 50 boxes, 10 reserved.'
+    source = SourceDocument.objects.create(incident=case.incident, facility=cedar,
+        kind='RAW_TEXT', observed_at=case.incident.simulated_now,
+        original_blob=text.encode(), decoded_text=text)
+    span = SourceSpan.objects.create(source=source, start=0, end=len(text))
+    candidate = InventoryClaim.objects.create(incident=case.incident, subject_id=batch.id,
+        field='on_hand', value=50, source=source, span=span, observed_at=source.observed_at,
+        status='OBSERVED_UNVERIFIED', basis='Unsigned synthetic count')
+    conflict = next(row for row in detect_conflicts(case.incident.id) if row.subject_id == batch.id)
+    context = context_for_conflict(conflict)
+    text = (f'Cedar on-hand observations differ: {signed.value} boxes [A] and '
+            f'{candidate.value} boxes [B]. Human verification is required before using this count.')
+    result = validate_grounded_content(json.dumps({'text': text, 'citations': ['A', 'B']}),
+                                       context, 'explanation')
+    assert result is not None
+    assert result.cited_span_ids == (signed.span_id, candidate.span_id)
 
 
 def test_conflict_endpoint_persists_only_receipt_and_keeps_incident_state(case, monkeypatch):
@@ -230,6 +271,41 @@ def test_stale_conflict_wording_is_discarded_after_a_provider_call(case, monkeyp
     assert response.status_code == 200
     assert response.json()['status'] == 'INVALID_OUTPUT'
     assert response.json()['source'] == 'DETERMINISTIC_FALLBACK'
+    assert 'refresh' in response.json()['text'].lower()
+    assert response.json()['cited_span_ids'] == []
+    assert AIInferenceReceipt.objects.get().status == 'INVALID_OUTPUT'
+
+
+def test_stale_task_draft_has_refresh_message_without_old_citations(case, monkeypatch):
+    from healthmesh.ai_gateway import service
+    from healthmesh.db_models.core import incident_mutation
+
+    selected = case.client.post(f'/api/v1/incidents/{case.incident.id}/verification-tasks',
+        data=json.dumps({'subject_id': str(case.brook.id), 'field': 'on_hand',
+                         'expected_revision': case.incident.revision}), content_type='application/json',
+        HTTP_X_CSRFTOKEN=case.token)
+    assert selected.status_code == 201
+    task_id = selected.json()['selected_task']['id']
+
+    class StubAMD:
+        def draft_verification(self, task, evidence):
+            with incident_mutation(case.incident.id):
+                pass
+            return SuggestedMessage(status='SUCCESS', receipt=receipt('question-v1'),
+                raw_content=json.dumps({'text': 'Can you confirm the current Brook on-hand box count from 95 boxes [A] and 80 boxes [B]?',
+                                        'citations': ['A', 'B']}))
+
+    monkeypatch.setattr(service, 'get_amd_adapter', lambda: StubAMD())
+    monkeypatch.setattr(service, 'admitted_call', lambda: __import__('contextlib').nullcontext(True))
+    response = case.client.post(f'/api/v1/verification-tasks/{task_id}/draft',
+                                HTTP_X_CSRFTOKEN=case.token)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['status'] == 'INVALID_OUTPUT'
+    assert payload['source'] == 'DETERMINISTIC_FALLBACK'
+    assert 'refresh' in payload['text'].lower()
+    assert payload['cited_span_ids'] == []
+    assert payload['receipt_id']
     assert AIInferenceReceipt.objects.get().status == 'INVALID_OUTPUT'
 
 

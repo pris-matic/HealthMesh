@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { amdHealth, createScenario, draftVerification, explainConflict, getEvidence, getVerificationOptions, requestPlan, selectVerification, session } from './api';
-import type { EvidenceDto, GroundedWordingDto, PlanDto, RankingDto, ScenarioDto, SessionDto } from './types';
+import { amdHealth, createScenario, draftVerification, explainConflict, getEvidence, getVerificationOptions, requestPlan, respondToVerification, selectVerification, session } from './api';
+import type { EvidenceDto, GroundedWordingDto, PlanDto, RankingDto, ScenarioDto, SessionDto, VerificationAnswerInput, VerificationResponseDto } from './types';
 import { Login } from './features/Login';
 import { PlanPreview } from './features/PlanPreview';
 import { SourceUpload } from './features/SourceUpload';
@@ -30,6 +30,7 @@ export default function App() {
     return () => { active = false; };
   }, [account]);
   const incidentId = scenario?.id;
+  const hasPlan = plan !== null;
   useEffect(() => {
     if (!showEvidence || !incidentId) return;
     let active = true;
@@ -43,7 +44,7 @@ export default function App() {
     getVerificationOptions(incidentId).then(result => { if (active) { setRanking(result); setRankingError(''); } })
       .catch(err => { if (active) setRankingError(err instanceof Error ? err.message : 'Could not load questions.'); });
     return () => { active = false; };
-  }, [plan, incidentId, evidenceVersion]);
+  }, [hasPlan, incidentId, evidenceVersion]);
   async function chooseQuestion(subjectId: string, field: 'on_hand' | 'route_status') {
     if (!incidentId || !ranking) return;
     setBusy(true); setRankingError('');
@@ -53,6 +54,16 @@ export default function App() {
       setRanking(await getVerificationOptions(incidentId));
     } catch (err) { setRankingError(err instanceof Error ? err.message : 'Could not select question.'); }
     finally { setBusy(false); }
+  }
+  async function recordVerification(taskId: string, answer: VerificationAnswerInput): Promise<VerificationResponseDto> {
+    const result = await respondToVerification(taskId, answer);
+    setSelectedFallback(null);
+    setEvidenceVersion(version => version + 1);
+    if (incidentId) {
+      try { setPlan(await requestPlan(incidentId)); }
+      catch (err) { setError(`Response recorded, but plan refresh failed: ${err instanceof Error ? err.message : 'please retry.'}`); }
+    }
+    return result;
   }
   async function generate() {
     setBusy(true); setError(''); setPlan(null);
@@ -90,6 +101,8 @@ export default function App() {
         {ranking && <VerificationDesk ranking={ranking} onSelect={chooseQuestion}
           selectedFallback={selectedFallback}
           onDraft={account.user.role === 'coordinator' ? draftVerification : undefined}
+          onRespond={account.user.role === 'coordinator' ? recordVerification : undefined}
+          canRespond={account.user.role === 'coordinator'}
           canSelect={account.user.role === 'coordinator' && !busy && !ranking.selected_task} />}</>}</>}
   </main></>;
 }

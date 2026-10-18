@@ -63,3 +63,44 @@ def detect_conflicts(incident_id: UUID) -> list[EvidenceConflict]:
                         field=field, field_key=f'{subject_id}:{field}', claim_ids=claim_ids,
                         conflict_type='VALUE_DISAGREEMENT', state='OPEN')
     return list(EvidenceConflict.objects.filter(incident=incident, state='OPEN').order_by('field_key'))
+
+
+def ensure_selected_conflict(incident_id: UUID, subject_id: UUID,
+                             field: str) -> EvidenceConflict | None:
+    """Track disagreement for one field without touching other open conflicts."""
+    claims = list(InventoryClaim.objects.filter(
+        incident_id=incident_id, subject_id=subject_id, field=field).order_by('id'))
+    if len({_value_key(row.value) for row in claims}) < 2:
+        return None
+    rows = list(EvidenceConflict.objects.filter(
+        incident_id=incident_id, subject_id=subject_id, field=field).order_by('created_at', 'id'))
+    active = next((row for row in rows if row.state == 'OPEN'), None)
+    ids = sorted(str(row.id) for row in claims)
+    if active is not None:
+        if active.claim_ids != ids:
+            active.claim_ids = ids
+            active.save()
+        return active
+    resolved = [row for row in rows if row.state == 'RESOLVED']
+    if resolved and _covered_by_resolution(resolved[-1], claims):
+        return None
+    return EvidenceConflict.objects.create(
+        incident_id=incident_id, subject_id=subject_id, field=field,
+        field_key=f'{subject_id}:{field}', claim_ids=ids,
+        conflict_type='VALUE_DISAGREEMENT', state='OPEN')
+
+
+def resolve_selected_conflict(incident_id: UUID, subject_id: UUID, field: str,
+                              manual_claim: InventoryClaim) -> EvidenceConflict | None:
+    """Resolve only the verified field, preserving every earlier claim and conflict."""
+    if (manual_claim.incident_id != incident_id or manual_claim.subject_id != subject_id
+            or manual_claim.field != field or manual_claim.status != 'HUMAN_VERIFIED'
+            or manual_claim.source.kind != 'MANUAL' or not manual_claim.source.verified):
+        raise ValueError('A matching verified manual claim is required.')
+    conflict = ensure_selected_conflict(incident_id, subject_id, field)
+    if conflict is None:
+        return None
+    conflict.state = 'RESOLVED'
+    conflict.resolution_id = manual_claim.id
+    conflict.save()
+    return conflict
